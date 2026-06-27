@@ -39,15 +39,18 @@ export async function discoverProjects(active: string): Promise<ProjectModel> {
     /* no config -> only the active project */
   }
 
-  // Always include the active project, even if it isn't in the config.
-  const activeKey = normalizePath(active);
-  if (!byNorm.has(activeKey)) {
-    byNorm.set(activeKey, { path: active, name: basename(active) || active });
-  }
-
-  // Report `current` as the matching candidate's exact path string, so the
+  // Include the active project (if any) only when it is itself viewable, so the
+  // picker never offers a non-openspec directory. `current` is "" when no
+  // project is active. Reported as the candidate's exact path string so the
   // client's selected-option comparison works regardless of slash/case.
-  const current = byNorm.get(activeKey)?.path ?? active;
+  let current = "";
+  if (active && isViewableProject(active)) {
+    const key = normalizePath(active);
+    if (!byNorm.has(key)) {
+      byNorm.set(key, { path: active, name: basename(active) || active });
+    }
+    current = byNorm.get(key)!.path;
+  }
   return { current, candidates: [...byNorm.values()] };
 }
 

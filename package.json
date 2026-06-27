@@ -1,6 +1,6 @@
 {
   "name": "data-loom",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Local dashboard for spec-driven development: a phased OpenSpec roadmap (WHAT) and an MCP topology (HOW).",
   "type": "module",

@@ -54,13 +54,23 @@ projectSelect.addEventListener("change", async () => {
 function setProjects(p) {
   projects = p;
   renderProjects(p);
+  if (!p.current) {
+    // No active project — prompt the user to pick one.
+    board.innerHTML = '<div class="empty-state">Select a project above to begin.</div>';
+    edgesSvg.innerHTML = "";
+    doneBand.classList.add("hidden");
+    conflictsEl.classList.add("hidden");
+  }
 }
 
 function renderProjects(p) {
   if (!p) return;
-  projectSelect.innerHTML = p.candidates
-    .map((c) => `<option value="${escapeHtml(c.path)}"${c.path === p.current ? " selected" : ""}>${escapeHtml(c.name)}</option>`)
-    .join("");
+  const placeholder = p.current ? "" : '<option value="" disabled selected>Select a project…</option>';
+  projectSelect.innerHTML =
+    placeholder +
+    p.candidates
+      .map((c) => `<option value="${escapeHtml(c.path)}"${c.path === p.current ? " selected" : ""}>${escapeHtml(c.name)}</option>`)
+      .join("");
 }
 
 connect();

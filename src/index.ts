@@ -4,6 +4,7 @@
 // project that can be switched at runtime.
 
 import { resolve } from "node:path";
+import { spawn } from "node:child_process";
 import { OpenSpecClient } from "./openspecClient.js";
 import { deriveModel } from "./derive.js";
 import { watchOpenspec } from "./watcher.js";
@@ -46,12 +47,19 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  if (!isViewableProject(initialProject)) {
-    console.error(`[data-loom] ERROR: ${initialProject} has no openspec/ workspace.`);
-    process.exit(1);
+  // Resolve a viewable project: the launch dir, else the first discovered one,
+  // else none. Never exit just because the launch dir isn't a project.
+  let active: string | null = isViewableProject(initialProject) ? initialProject : null;
+  if (!active) {
+    const candidates = (await discoverProjects(initialProject)).candidates;
+    active = candidates[0]?.path ?? null;
+  }
+  if (active) {
+    session = await buildSession(active);
+  } else {
+    console.log("[data-loom] no openspec project found at launch — open the dashboard and pick one");
   }
 
-  session = await buildSession(initialProject);
   server = await startServer({
     publicDir: resolvePublicDir(),
     host,
@@ -64,7 +72,8 @@ async function main(): Promise<void> {
   });
 
   console.log(`[data-loom] dashboard ready at http://${host}:${server.port}`);
-  console.log(`[data-loom] project: ${session.project}`);
+  if (session) console.log(`[data-loom] project: ${session.project}`);
+  openBrowser(`http://${host}:${server.port}`);
 
   const shutdown = (): void => {
     session?.stopWatch();
@@ -132,7 +141,22 @@ async function checkMcp(name: string): Promise<McpServer | null> {
 }
 
 function getProjects(): Promise<ProjectModel> {
-  return discoverProjects(session?.project ?? initialProject);
+  return discoverProjects(session?.project ?? "");
+}
+
+function openBrowser(url: string): void {
+  if (process.env.DATA_LOOM_NO_OPEN) return;
+  try {
+    if (process.platform === "win32") {
+      spawn("cmd", ["/c", "start", "", url], { stdio: "ignore", detached: true }).unref();
+    } else if (process.platform === "darwin") {
+      spawn("open", [url], { stdio: "ignore", detached: true }).unref();
+    } else {
+      spawn("xdg-open", [url], { stdio: "ignore", detached: true }).unref();
+    }
+  } catch {
+    /* non-fatal — the URL is already logged */
+  }
 }
 
 main().catch((err) => {

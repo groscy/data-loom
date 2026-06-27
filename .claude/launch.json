@@ -5,7 +5,8 @@
       "name": "data-loom",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
-      "port": 4317
+      "port": 4317,
+      "env": { "DATA_LOOM_NO_OPEN": "1" }
     }
   ]
 }
