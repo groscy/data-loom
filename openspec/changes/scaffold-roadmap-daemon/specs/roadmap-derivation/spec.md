@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
-### Requirement: Read OpenSpec data via CLI JSON
-The derivation SHALL obtain change, capability, and status data from the `openspec` CLI's JSON output rather than hand-parsing markdown artifacts.
+### Requirement: Source data from the CLI and proposal capability declarations
+The derivation SHALL obtain the change list, per-change task/status progress, and capability deltas (capability names and delta operations) from the `openspec` CLI's JSON output, and SHALL NOT hand-parse requirement or scenario prose. Because the CLI does not expose capability ownership, the derivation SHALL read each change proposal's structured Capabilities section to determine which capabilities a change introduces (New) versus extends or depends upon (Modified).
 
-#### Scenario: Source data from the CLI
-- **WHEN** the derivation needs the set of changes and their capabilities
-- **THEN** it invokes the `openspec` CLI JSON commands and uses their structured output as the source of truth
+#### Scenario: Deltas and progress come from the CLI
+- **WHEN** the derivation needs the changes, their capability deltas, and task progress
+- **THEN** it uses the `openspec` CLI JSON output as the source and does not parse requirement or scenario prose
+
+#### Scenario: Ownership comes from proposal capability declarations
+- **WHEN** the derivation needs to know which change introduces a capability versus depends on it
+- **THEN** it reads the proposal's New / Modified Capabilities declarations to determine ownership
 
 ### Requirement: Derived, non-persisted ordering
 The roadmap ordering SHALL be derived fresh from the current OpenSpec workspace on every recompute and SHALL NOT be read from or written to any stored phase/order field.

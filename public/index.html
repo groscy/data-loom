@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>data_loom</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">data<span class="us">_</span>loom</div>
+      <nav class="tabs">
+        <button class="tab active" data-tab="roadmap">Roadmap</button>
+        <button class="tab disabled" title="Arrives in Phase 2 — add-mcp-topology">MCP Topology</button>
+      </nav>
+      <div class="conn">
+        <span id="conn-dot" class="dot"></span>
+        <span id="conn-text">connecting…</span>
+        <span id="gen" class="gen"></span>
+      </div>
+    </header>
+
+    <main>
+      <section id="roadmap" class="view active">
+        <div class="board-wrap">
+          <svg id="edges" class="edges" aria-hidden="true"></svg>
+          <div id="board" class="board"></div>
+        </div>
+        <section id="doneband" class="doneband hidden"></section>
+      </section>
+    </main>
+
+    <aside id="detail" class="detail hidden">
+      <button id="detail-close" class="detail-close" aria-label="Close">&times;</button>
+      <div id="detail-body"></div>
+    </aside>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
