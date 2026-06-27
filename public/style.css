@@ -206,3 +206,10 @@ main { padding: 22px; height: calc(100% - 52px); overflow: auto; }
 .conflicts-head { color: var(--warn); font-weight: 600; margin-bottom: 6px; font-size: 13px; }
 .conflict-item { font-size: 13px; color: var(--text); padding: 2px 0; }
 .conflict-item::before { content: "•"; color: var(--warn); margin-right: 8px; }
+
+/* phase-planning: readiness */
+.pill.r-ready { color: var(--accent); border-color: #2f4a6b; }
+.pill.r-blocked { color: var(--muted); }
+.card.next { box-shadow: 0 0 0 2px var(--accent); }
+.blocked-note { font-size: 11px; color: var(--muted); margin-top: 7px; }
+.blocked-note::before { content: "⏳ "; }

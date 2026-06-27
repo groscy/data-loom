@@ -15,6 +15,7 @@ let projects = null;
 let model = null;
 let cardEls = new Map(); // change name -> card element
 let conflictedNames = new Set(); // change names involved in any conflict
+let nextUpNames = new Set(); // ready proposals in the earliest phase (recommended next)
 let doneCollapsed = true;
 let detailChange = null; // name of the change shown in the detail panel
 
@@ -110,6 +111,10 @@ function render(m) {
   genEl.textContent = m.generatedAt ? "· " + new Date(m.generatedAt).toLocaleTimeString() : "";
   conflictedNames = new Set((m.conflicts || []).flatMap((c) => c.changes));
   renderConflicts(m.conflicts || []);
+  // Recommended next = ready proposals in the earliest phase that has any.
+  const ready = m.changes.filter((c) => !c.archived && c.readiness === "ready");
+  const minPhase = ready.length ? Math.min(...ready.map((c) => c.phase)) : 0;
+  nextUpNames = new Set(ready.filter((c) => c.phase === minPhase).map((c) => c.name));
   renderBoard();
   renderDoneBand();
   // Wait a frame so layout settles before measuring for edges.
@@ -153,15 +158,27 @@ function renderBoard() {
 
 function renderCard(c) {
   const warn = conflictedNames.has(c.name) || c.unsatisfiedDependencies.length > 0;
-  const card = el("div", `card s-${c.status}${warn ? " warn" : ""}`);
+  const next = nextUpNames.has(c.name);
+  const card = el("div", `card s-${c.status}${warn ? " warn" : ""}${next ? " next" : ""}`);
   card.appendChild(el("div", "card-name", c.name));
 
   const meta = el("div", "card-meta");
   meta.appendChild(el("span", `pill s-${c.status}`, c.status));
+  if (!c.archived && c.readiness !== "done") {
+    meta.appendChild(el("span", `pill r-${c.readiness}`, c.readiness));
+  }
   if (c.totalTasks > 0) {
     meta.appendChild(el("span", "tasks-mini", `${c.completedTasks}/${c.totalTasks} tasks`));
   }
   card.appendChild(meta);
+
+  if (c.readiness === "blocked") {
+    const waiting = c.dependsOn.filter((d) => {
+      const dep = model.changes.find((x) => x.name === d);
+      return !dep || dep.status !== "done";
+    });
+    if (waiting.length) card.appendChild(el("div", "blocked-note", "waiting on " + waiting.map(escapeHtml).join(", ")));
+  }
 
   const caps = el("div", "caps");
   const parts = [];

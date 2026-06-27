@@ -2,12 +2,17 @@
 
 export type Status = "draft" | "in-progress" | "done";
 
+/** Whether an open proposal can be implemented now. Finer than phase. */
+export type Readiness = "ready" | "blocked" | "done";
+
 /** One roadmap node = one OpenSpec change. */
 export interface ChangeNode {
   name: string;
   /** Topological phase (1-based). 0 only for archived nodes, which live in the done band. */
   phase: number;
   status: Status;
+  /** Implementation readiness — ready to start now, blocked by active work, or done. */
+  readiness: Readiness;
   newCapabilities: string[];
   modifiedCapabilities: string[];
   /** Names of changes this change depends on (derived from capability ownership). */

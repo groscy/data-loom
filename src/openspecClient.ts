@@ -91,6 +91,16 @@ export class OpenSpecClient {
     };
   }
 
+  /** Explicit cross-proposal dependencies declared under a `## Depends On` section. */
+  async readProposalDependsOn(name: string): Promise<string[]> {
+    const path = join(this.openspecDir(), "changes", name, "proposal.md");
+    try {
+      return dependsOnInSection(await readFile(path, "utf8"));
+    } catch {
+      return [];
+    }
+  }
+
   /** Archived change names (completed nodes shown in the done band). */
   async listArchived(): Promise<string[]> {
     return this.listDirNames(join(this.openspecDir(), "changes", "archive"));
@@ -118,6 +128,17 @@ function parseLooseJson<T>(s: string): T {
     throw new Error(`No JSON found in openspec CLI output: ${s.slice(0, 160)}`);
   }
   return JSON.parse(s.slice(start)) as T;
+}
+
+/** Extract `- <change-name>` bullets under a `## Depends On` heading. */
+function dependsOnInSection(text: string): string[] {
+  const m = /(?:^|\n)##\s+Depends On\s*([\s\S]*?)(?:\n##\s|\n#\s|$)/.exec(text);
+  if (!m) return [];
+  const out: string[] = [];
+  const bullet = /^-\s+`?([a-z0-9-]+)`?/gm;
+  let mm: RegExpExecArray | null;
+  while ((mm = bullet.exec(m[1])) !== null) out.push(mm[1]);
+  return out;
 }
 
 /** Extract `- \`cap-name\`: ...` bullets under a `### <heading>` block. */

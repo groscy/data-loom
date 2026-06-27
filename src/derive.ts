@@ -19,6 +19,14 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
     names.map(async (n) => caps.set(n, await client.readProposalCaps(n))),
   );
 
+  // Explicit `## Depends On` declarations per change.
+  const explicitDeps = new Map<string, string[]>();
+  await Promise.all(
+    names.map(async (n) => explicitDeps.set(n, await client.readProposalDependsOn(n))),
+  );
+  const nameSet = new Set(names);
+  const archivedBare = new Set(archived.map((a) => a.replace(/^\d{4}-\d{2}-\d{2}-/, "")));
+
   // owner[capability] = the change that introduces it (lists it under New).
   const owner = new Map<string, string>();
   for (const n of names) {
@@ -40,11 +48,19 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
       if (o && o !== c.name) dependsOn.add(o);
       else if (!o) unsatisfied.push(cap); // dangling / out-of-order (surfaced in Phase 2)
     }
+    // Explicit cross-proposal dependencies, merged with the capability edges.
+    for (const dep of explicitDeps.get(c.name) ?? []) {
+      if (dep === c.name) continue;
+      if (nameSet.has(dep)) dependsOn.add(dep); // active change -> edge
+      else if (archivedBare.has(dep)) continue; // archived/done -> satisfied
+      else unsatisfied.push(dep); // unknown name -> conflict
+    }
     depMap.set(c.name, [...dependsOn]);
     nodes.push({
       name: c.name,
       phase: 0,
       status: deriveStatus(c, false),
+      readiness: "done",
       newCapabilities: newCaps,
       modifiedCapabilities: modifiedCaps,
       dependsOn: [...dependsOn],
@@ -62,6 +78,7 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
       name: a,
       phase: 0,
       status: "done",
+      readiness: "done",
       newCapabilities: [],
       modifiedCapabilities: [],
       dependsOn: [],
@@ -104,6 +121,16 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
   const phases: Phase[] = [...byPhase.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([phase, changeNames]) => ({ phase, changeNames }));
+
+  // Readiness: ready when every active dependency is done; blocked otherwise.
+  const statusByName = new Map(nodes.map((n) => [n.name, n.status] as const));
+  for (const node of nodes) {
+    if (node.archived || node.status === "done") {
+      node.readiness = "done";
+    } else {
+      node.readiness = node.dependsOn.some((d) => statusByName.get(d) !== "done") ? "blocked" : "ready";
+    }
+  }
 
   // Surface conflicts (detection never aborts the rest of the derivation).
   const conflicts: Conflict[] = [];

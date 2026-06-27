@@ -6,6 +6,7 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
       "port": 4317,
+      "autoPort": true,
       "env": { "DATA_LOOM_NO_OPEN": "1" }
     }
   ]
