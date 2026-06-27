@@ -1,0 +1,58 @@
+schema: spec-driven
+
+context: |
+  Product: data_loom — a fully-local dashboard for spec-driven development.
+  One product, two aspects of the same workflow:
+    - WHAT do I develop?  → an interactive phased OpenSpec roadmap
+    - HOW / with what?     → a topological view of the local MCP setup
+
+  Tech stack (decided): a long-running local Node daemon + a browser SPA,
+  connected over a websocket. The daemon is the single source of runtime
+  truth; the browser is a thin reactive view. Runs entirely on localhost,
+  no cloud, single user. Target host OS is Windows.
+
+  Roadmap model (decided):
+    - A roadmap NODE is exactly one OpenSpec change (proposal). Archived
+      changes appear as completed nodes in a collapsed "done" band.
+    - Ordering is DERIVED, never stored. Phase is a pure function of the
+      dependency DAG, recomputed by the daemon on every file change. The
+      propose step only REPORTS the computed slot; it never writes a phase
+      into a proposal.
+    - Dependency edges are mechanical, not NLP: a change that MODIFIES /
+      REMOVES / RENAMES a capability depends on whatever ADDED that
+      capability (or on the capability already living in specs/). Changes
+      that ADD disjoint capabilities are independent and share a phase.
+    - Phases are the topological layers of that DAG. Cycles and
+      dangling/out-of-order dependencies are surfaced as conflicts, not
+      hidden.
+    - Status (from tasks.md progress) is a SECOND, independent axis from
+      phase (order). The roadmap is a phase × status grid.
+
+  MCP model (decided):
+    - Hub-and-spoke topology with Claude Code as the single hub at the
+      center. Servers are read by MERGING Claude Code config sources:
+      ~/.claude.json (global mcpServers + per-project mcpServers) and
+      ~/.claude/.mcp.json, then de-duplicating scope-duplicated entries.
+      Server scope (global vs project) is a visible property of each spoke.
+    - The dashboard is a MIRROR, never a launcher. Availability is checked
+      PASSIVELY and the daemon NEVER spawns or starts any application:
+        * URL servers (http / sse / streamable-http): connect to the
+          already-listening endpoint; "available" = it answers.
+        * stdio servers: nothing is listening, so state is "on-demand",
+          with best-effort "already-running" only if a matching process is
+          found in the OS process table. Never spawn it. The user starts
+          the applications they need; the dashboard only reports state.
+    - The MCP layer must be generic across all server transport types.
+
+  Conventions: keep the product simple and local-first. Prefer deriving
+  truth from files/config over storing duplicate state.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
