@@ -32,8 +32,8 @@ html, body {
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
-.brand { font-weight: 700; font-size: 17px; letter-spacing: 0.5px; }
-.brand .us { color: var(--accent); }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; letter-spacing: 0.3px; }
+.brand-logo { display: block; }
 
 .tabs { display: flex; gap: 4px; }
 .tab {

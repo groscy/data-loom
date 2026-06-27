@@ -1,4 +1,4 @@
-# data_loom
+# DataLoom
 
 A fully-local dashboard for spec-driven development. Two views of the same workflow:
 
@@ -9,7 +9,7 @@ It runs as a small local daemon (a Node HTTP + WebSocket server) and a browser v
 
 ## Prerequisite
 
-data_loom reads your workspace through the **OpenSpec CLI**, which is **not bundled**. Install it separately:
+DataLoom reads your workspace through the **OpenSpec CLI**, which is **not bundled**. Install it separately:
 
 ```
 npm install -g openspec
@@ -19,11 +19,11 @@ npm install -g openspec
 
 ## Get it (recommended): download the executable
 
-1. Download the latest `data-loom.exe` from the repository's [**Releases**](../../releases) page. It's a standalone executable — no Node install, no build.
+1. Download the latest `DataLoom.exe` from the repository's [**Releases**](../../releases) page. It's a standalone executable — no Node install, no build.
 2. Run it, pointing at a project (any directory containing an `openspec/` workspace):
 
    ```
-   data-loom.exe "C:\path\to\your\project"
+   DataLoom.exe "C:\path\to\your\project"
    ```
 
    With no argument it uses the current directory. Then open <http://127.0.0.1:4317>.
@@ -40,13 +40,13 @@ npm start            # serves the current directory's project
 # or: npm start -- "C:\path\to\project"
 ```
 
-Build the executable yourself with `npm run package` → `build/data-loom.exe`.
+Build the executable yourself with `npm run package` → `build/DataLoom.exe`. (The npm package id stays `data-loom`, lowercase per npm rules; the product and the executable are branded **DataLoom**.)
 
 ## Using the dashboard
 
 - **Project selector** (top-right): switch which project is displayed. The list is your Claude Code known projects that contain an `openspec/` workspace, plus the active one. Switching re-scopes the roadmap, the file-watching, and the MCP project-scope live.
 - **Roadmap tab**: changes by phase × status. Click a node to inspect its phase, status, and the capabilities it adds/modifies. A conflicts banner appears if the dependency graph has a cycle or a dangling dependency.
-- **MCP Topology tab**: your servers around the Claude Code hub. Click **check** on a server to passively probe it — data_loom never starts a server or its backing app; it only reports what's reachable so you know what to start yourself.
+- **MCP Topology tab**: your servers around the Claude Code hub. Click **check** on a server to passively probe it — DataLoom never starts a server or its backing app; it only reports what's reachable so you know what to start yourself.
 
 ## Design principles
 
@@ -57,4 +57,4 @@ Build the executable yourself with `npm run package` → `build/data-loom.exe`.
 
 ## Built with itself
 
-data_loom was specified and built with OpenSpec; its own `openspec/` workspace is in this repo, and early in development the dashboard rendered its own build plan.
+DataLoom was specified and built with OpenSpec; its own `openspec/` workspace is in this repo, and early in development the dashboard rendered its own build plan.

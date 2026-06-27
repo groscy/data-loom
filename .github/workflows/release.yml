@@ -28,5 +28,5 @@ jobs:
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/data-loom.exe
+          files: build/DataLoom.exe
           fail_on_unmatched_files: true

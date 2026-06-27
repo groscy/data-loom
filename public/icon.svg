@@ -1,0 +1,22 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DataLoom">
+  <title>DataLoom</title>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="#141a22" stroke="#2a3038" stroke-width="2"/>
+  <g fill="#6ea8fe">
+    <rect x="17" y="11" width="9" height="42" rx="4.5"/>
+    <rect x="38" y="11" width="9" height="42" rx="4.5"/>
+  </g>
+  <g fill="#4cae6a">
+    <rect x="11" y="17" width="42" height="9" rx="4.5"/>
+    <rect x="11" y="38" width="42" height="9" rx="4.5"/>
+  </g>
+  <g fill="#6ea8fe">
+    <rect x="17" y="17" width="9" height="9" rx="2.5"/>
+    <rect x="38" y="38" width="9" height="9" rx="2.5"/>
+  </g>
+  <g fill="#eaf0f8">
+    <circle cx="21.5" cy="21.5" r="1.9"/>
+    <circle cx="42.5" cy="21.5" r="1.9"/>
+    <circle cx="21.5" cy="42.5" r="1.9"/>
+    <circle cx="42.5" cy="42.5" r="1.9"/>
+  </g>
+</svg>
