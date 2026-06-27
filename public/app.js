@@ -8,9 +8,11 @@ const detailBody = document.getElementById("detail-body");
 const connDot = document.getElementById("conn-dot");
 const connText = document.getElementById("conn-text");
 const genEl = document.getElementById("gen");
+const conflictsEl = document.getElementById("conflicts");
 
 let model = null;
 let cardEls = new Map(); // change name -> card element
+let conflictedNames = new Set(); // change names involved in any conflict
 let doneCollapsed = true;
 
 document.getElementById("detail-close").addEventListener("click", () => {
@@ -62,10 +64,26 @@ function setConn(live) {
 function render(m) {
   model = m;
   genEl.textContent = m.generatedAt ? "· " + new Date(m.generatedAt).toLocaleTimeString() : "";
+  conflictedNames = new Set((m.conflicts || []).flatMap((c) => c.changes));
+  renderConflicts(m.conflicts || []);
   renderBoard();
   renderDoneBand();
   // Wait a frame so layout settles before measuring for edges.
   requestAnimationFrame(drawEdges);
+}
+
+function renderConflicts(conflicts) {
+  if (!conflicts.length) {
+    conflictsEl.classList.add("hidden");
+    conflictsEl.innerHTML = "";
+    return;
+  }
+  conflictsEl.classList.remove("hidden");
+  conflictsEl.innerHTML =
+    `<div class="conflicts-head">⚠ ${conflicts.length} conflict${conflicts.length > 1 ? "s" : ""}</div>` +
+    conflicts
+      .map((c) => `<div class="conflict-item conflict-${c.type}">${escapeHtml(c.description)}</div>`)
+      .join("");
 }
 
 function renderBoard() {
@@ -90,7 +108,7 @@ function renderBoard() {
 }
 
 function renderCard(c) {
-  const warn = c.unsatisfiedDependencies.length > 0;
+  const warn = conflictedNames.has(c.name) || c.unsatisfiedDependencies.length > 0;
   const card = el("div", `card s-${c.status}${warn ? " warn" : ""}`);
   card.appendChild(el("div", "card-name", c.name));
 

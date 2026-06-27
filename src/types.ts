@@ -24,10 +24,19 @@ export interface Phase {
   changeNames: string[];
 }
 
+/** A surfaced ordering problem: a dependency cycle or a dangling/out-of-order dep. */
+export interface Conflict {
+  type: "cycle" | "dangling";
+  changes: string[];
+  capability?: string;
+  description: string;
+}
+
 /** The complete, derived roadmap pushed to the browser. */
 export interface RoadmapModel {
   generatedAt: string;
   changes: ChangeNode[];
   phases: Phase[];
   baselineCapabilities: string[];
+  conflicts: Conflict[];
 }

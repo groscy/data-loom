@@ -2,7 +2,7 @@
 // Derivation is a pure function of the current workspace — nothing is stored.
 
 import type { OpenSpecClient, ChangeListEntry } from "./openspecClient.js";
-import type { ChangeNode, Phase, RoadmapModel, Status } from "./types.js";
+import type { ChangeNode, Conflict, Phase, RoadmapModel, Status } from "./types.js";
 
 export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel> {
   const [list, archived, baseline] = await Promise.all([
@@ -105,12 +105,64 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
     .sort((a, b) => a[0] - b[0])
     .map(([phase, changeNames]) => ({ phase, changeNames }));
 
+  // Surface conflicts (detection never aborts the rest of the derivation).
+  const conflicts: Conflict[] = [];
+  try {
+    for (const cyc of findCycles(depMap)) {
+      conflicts.push({
+        type: "cycle",
+        changes: cyc,
+        description: `Dependency cycle: ${[...cyc, cyc[0]].join(" → ")}`,
+      });
+    }
+    for (const node of nodes) {
+      for (const cap of node.unsatisfiedDependencies) {
+        conflicts.push({
+          type: "dangling",
+          changes: [node.name],
+          capability: cap,
+          description: `${node.name} modifies "${cap}", which no change adds and no baseline provides`,
+        });
+      }
+    }
+  } catch {
+    /* leave conflicts empty rather than failing the roadmap */
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     changes: nodes,
     phases,
     baselineCapabilities: baseline,
+    conflicts,
   };
+}
+
+/** Find dependency cycles via DFS back-edge detection over the dependency map. */
+function findCycles(depMap: Map<string, string[]>): string[][] {
+  const color = new Map<string, number>(); // 0 = unvisited, 1 = on stack, 2 = done
+  const stack: string[] = [];
+  const cycles: string[][] = [];
+  const dfs = (n: string): void => {
+    color.set(n, 1);
+    stack.push(n);
+    for (const dep of depMap.get(n) ?? []) {
+      if (!depMap.has(dep)) continue;
+      const c = color.get(dep) ?? 0;
+      if (c === 1) {
+        const idx = stack.indexOf(dep);
+        if (idx >= 0) cycles.push(stack.slice(idx));
+      } else if (c === 0) {
+        dfs(dep);
+      }
+    }
+    stack.pop();
+    color.set(n, 2);
+  };
+  for (const n of depMap.keys()) {
+    if ((color.get(n) ?? 0) === 0) dfs(n);
+  }
+  return cycles;
 }
 
 function deriveStatus(c: Pick<ChangeListEntry, "completedTasks" | "totalTasks">, archived: boolean): Status {

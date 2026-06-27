@@ -179,3 +179,16 @@ main { padding: 22px; height: calc(100% - 52px); overflow: auto; }
 .topo-check:hover { border-color: var(--accent); color: var(--text); }
 
 .topo-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%, 60px); color: var(--muted); }
+
+/* conflicts banner (roadmap) */
+.conflicts {
+  background: rgba(214, 96, 77, 0.08);
+  border: 1px solid var(--warn);
+  border-radius: 9px;
+  padding: 11px 14px;
+  margin-bottom: 18px;
+}
+.conflicts.hidden { display: none; }
+.conflicts-head { color: var(--warn); font-weight: 600; margin-bottom: 6px; font-size: 13px; }
+.conflict-item { font-size: 13px; color: var(--text); padding: 2px 0; }
+.conflict-item::before { content: "•"; color: var(--warn); margin-right: 8px; }
