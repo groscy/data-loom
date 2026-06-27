@@ -9,14 +9,18 @@ const connDot = document.getElementById("conn-dot");
 const connText = document.getElementById("conn-text");
 const genEl = document.getElementById("gen");
 const conflictsEl = document.getElementById("conflicts");
+const projectSelect = document.getElementById("project-select");
 
+let projects = null;
 let model = null;
 let cardEls = new Map(); // change name -> card element
 let conflictedNames = new Set(); // change names involved in any conflict
 let doneCollapsed = true;
+let detailChange = null; // name of the change shown in the detail panel
 
 document.getElementById("detail-close").addEventListener("click", () => {
   detail.classList.add("hidden");
+  detailChange = null;
 });
 window.addEventListener("resize", () => {
   drawEdges();
@@ -35,6 +39,30 @@ for (const btn of document.querySelectorAll(".tab[data-tab]")) {
   });
 }
 
+// --- project selection ---
+projectSelect.addEventListener("change", async () => {
+  const path = projectSelect.value;
+  try {
+    const res = await fetch(`/api/project/select?path=${encodeURIComponent(path)}`, { method: "POST" });
+    if (!res.ok) renderProjects(projects); // rejected — restore previous selection
+  } catch (e) {
+    console.error("project switch failed", e);
+    renderProjects(projects);
+  }
+});
+
+function setProjects(p) {
+  projects = p;
+  renderProjects(p);
+}
+
+function renderProjects(p) {
+  if (!p) return;
+  projectSelect.innerHTML = p.candidates
+    .map((c) => `<option value="${escapeHtml(c.path)}"${c.path === p.current ? " selected" : ""}>${escapeHtml(c.name)}</option>`)
+    .join("");
+}
+
 connect();
 
 function connect() {
@@ -50,6 +78,7 @@ function connect() {
       if (msg.type === "model") render(msg.model);
       else if (msg.type === "mcp") setMcp(msg.mcp);
       else if (msg.type === "mcpServer") updateMcpServer(msg.server);
+      else if (msg.type === "project") setProjects(msg.project);
     } catch (e) {
       console.error("bad message", e);
     }
@@ -63,6 +92,11 @@ function setConn(live) {
 
 function render(m) {
   model = m;
+  // Close a stale detail panel if its change is gone (e.g. after a project switch).
+  if (detailChange && !m.changes.some((c) => c.name === detailChange)) {
+    detail.classList.add("hidden");
+    detailChange = null;
+  }
   genEl.textContent = m.generatedAt ? "· " + new Date(m.generatedAt).toLocaleTimeString() : "";
   conflictedNames = new Set((m.conflicts || []).flatMap((c) => c.changes));
   renderConflicts(m.conflicts || []);
@@ -183,6 +217,7 @@ function drawEdges() {
 
 function showDetail(c) {
   detail.classList.remove("hidden");
+  detailChange = c.name;
   detailBody.innerHTML = `
     <h2>${escapeHtml(c.name)}</h2>
     <div class="card-meta">

@@ -10,7 +10,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsc && node --watch dist/index.js"
+    "dev": "tsc && node --watch dist/index.js",
+    "bundle": "node scripts/build-exe.mjs --bundle-only",
+    "package": "node scripts/build-exe.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -21,6 +23,8 @@
   "devDependencies": {
     "@types/node": "^22.7.0",
     "@types/ws": "^8.5.12",
+    "esbuild": "^0.24.0",
+    "postject": "^1.0.0-alpha.6",
     "typescript": "^5.6.2"
   }
 }

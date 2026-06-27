@@ -1,0 +1,32 @@
+name: release
+
+# Build the standalone executable and publish it to a GitHub Release on version tags.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build standalone executable
+        run: npm run package
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/data-loom.exe
+          fail_on_unmatched_files: true
