@@ -11,7 +11,7 @@
       <div class="brand">data<span class="us">_</span>loom</div>
       <nav class="tabs">
         <button class="tab active" data-tab="roadmap">Roadmap</button>
-        <button class="tab disabled" title="Arrives in Phase 2 — add-mcp-topology">MCP Topology</button>
+        <button class="tab" data-tab="topology">MCP Topology</button>
       </nav>
       <div class="conn">
         <span id="conn-dot" class="dot"></span>
@@ -27,6 +27,18 @@
           <div id="board" class="board"></div>
         </div>
         <section id="doneband" class="doneband hidden"></section>
+      </section>
+
+      <section id="topology" class="view">
+        <div class="topo-legend">
+          <span><i class="swatch solid"></i> global</span>
+          <span><i class="swatch dashed"></i> project</span>
+          <span class="topo-hint">click a server to passively check it — data_loom never starts anything</span>
+        </div>
+        <div id="topo-wrap" class="topo-wrap">
+          <svg id="spokes" class="edges" aria-hidden="true"></svg>
+          <div id="topo-nodes"></div>
+        </div>
       </section>
     </main>
 

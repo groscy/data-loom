@@ -16,7 +16,22 @@ let doneCollapsed = true;
 document.getElementById("detail-close").addEventListener("click", () => {
   detail.classList.add("hidden");
 });
-window.addEventListener("resize", drawEdges);
+window.addEventListener("resize", () => {
+  drawEdges();
+  layoutTopology();
+});
+
+// --- tab switching ---
+let activeTab = "roadmap";
+for (const btn of document.querySelectorAll(".tab[data-tab]")) {
+  btn.addEventListener("click", () => {
+    activeTab = btn.dataset.tab;
+    for (const b of document.querySelectorAll(".tab")) b.classList.toggle("active", b === btn);
+    for (const v of document.querySelectorAll(".view")) v.classList.toggle("active", v.id === activeTab);
+    if (activeTab === "roadmap") requestAnimationFrame(drawEdges);
+    if (activeTab === "topology") requestAnimationFrame(layoutTopology);
+  });
+}
 
 connect();
 
@@ -31,6 +46,8 @@ function connect() {
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === "model") render(msg.model);
+      else if (msg.type === "mcp") setMcp(msg.mcp);
+      else if (msg.type === "mcpServer") updateMcpServer(msg.server);
     } catch (e) {
       console.error("bad message", e);
     }
@@ -160,6 +177,121 @@ function showDetail(c) {
     <h3>Depends on</h3>${list(c.dependsOn)}
     ${c.unsatisfiedDependencies.length ? `<h3>⚠ Unsatisfied</h3>${list(c.unsatisfiedDependencies)}` : ""}
   `;
+}
+
+// --- MCP topology (HOW tab) ---
+let mcpModel = null;
+const topoNodes = document.getElementById("topo-nodes");
+const spokesSvg = document.getElementById("spokes");
+let hubEl = null;
+let serverEls = new Map();
+
+function setMcp(m) {
+  mcpModel = m;
+  renderTopology();
+}
+
+function updateMcpServer(server) {
+  if (!mcpModel) return;
+  const i = mcpModel.servers.findIndex((s) => s.name === server.name);
+  if (i >= 0) mcpModel.servers[i] = server;
+  else mcpModel.servers.push(server);
+  renderTopology();
+}
+
+function renderTopology() {
+  if (!mcpModel) return;
+  topoNodes.innerHTML = "";
+  serverEls = new Map();
+
+  hubEl = el("div", "topo-node hub", `<div class="topo-name">${escapeHtml(mcpModel.hub)}</div><div class="topo-sub">hub</div>`);
+  topoNodes.appendChild(hubEl);
+
+  if (!mcpModel.servers.length) {
+    const empty = el("div", "topo-empty", "No MCP servers found in your Claude Code config.");
+    topoNodes.appendChild(empty);
+  }
+
+  for (const s of mcpModel.servers) {
+    const node = el("div", `topo-node srv live-${s.liveness} scope-${s.scope}`);
+    node.innerHTML = `
+      <div class="topo-name">${escapeHtml(s.name)}</div>
+      <div class="topo-sub">${escapeHtml(s.transport)}${s.command ? " · " + escapeHtml(s.command) : ""}${s.url ? " · " + escapeHtml(s.url) : ""}</div>
+      <div class="topo-state"><span class="live-dot"></span>${escapeHtml(livenessLabel(s.liveness))}${s.lastChecked ? " · " + new Date(s.lastChecked).toLocaleTimeString() : ""}</div>
+      <button class="topo-check" type="button">check</button>`;
+    node.querySelector(".topo-check").addEventListener("click", (e) => {
+      e.stopPropagation();
+      triggerCheck(s.name, node);
+    });
+    serverEls.set(s.name, node);
+    topoNodes.appendChild(node);
+  }
+  layoutTopology();
+}
+
+function layoutTopology() {
+  if (!mcpModel || !hubEl) return;
+  const rect = topoNodes.getBoundingClientRect();
+  if (!rect.width) return; // hidden tab — re-laid out on switch
+  const cx = rect.width / 2;
+  const cy = rect.height / 2;
+  place(hubEl, cx, cy);
+  const n = mcpModel.servers.length;
+  const R = Math.max(140, Math.min(rect.width, rect.height) / 2 - 130);
+  mcpModel.servers.forEach((s, i) => {
+    const node = serverEls.get(s.name);
+    if (!node) return;
+    const ang = (i / Math.max(n, 1)) * Math.PI * 2 - Math.PI / 2;
+    place(node, cx + Math.cos(ang) * R, cy + Math.sin(ang) * R);
+  });
+  drawSpokes();
+}
+
+function place(node, x, y) {
+  node.style.left = x + "px";
+  node.style.top = y + "px";
+}
+
+function drawSpokes() {
+  spokesSvg.innerHTML = "";
+  if (!hubEl) return;
+  const wrap = topoNodes.parentElement.getBoundingClientRect();
+  const h = hubEl.getBoundingClientRect();
+  const hx = h.left - wrap.left + h.width / 2;
+  const hy = h.top - wrap.top + h.height / 2;
+  for (const [name, node] of serverEls) {
+    const r = node.getBoundingClientRect();
+    const x = r.left - wrap.left + r.width / 2;
+    const y = r.top - wrap.top + r.height / 2;
+    const server = mcpModel.servers.find((s) => s.name === name);
+    const p = path(`M ${hx} ${hy} L ${x} ${y}`);
+    if (server && server.scope === "project") p.setAttribute("stroke-dasharray", "5 4");
+    spokesSvg.appendChild(p);
+  }
+}
+
+async function triggerCheck(name, node) {
+  node.className = node.className.replace(/live-\S+/g, "") + " live-checking";
+  const stateEl = node.querySelector(".topo-state");
+  if (stateEl) stateEl.innerHTML = '<span class="live-dot"></span>checking…';
+  try {
+    await fetch(`/api/mcp/check?name=${encodeURIComponent(name)}`, { method: "POST" });
+    // result arrives via the ws 'mcpServer' push -> updateMcpServer re-renders
+  } catch (e) {
+    console.error("check failed", e);
+  }
+}
+
+function livenessLabel(s) {
+  return {
+    unknown: "unknown",
+    checking: "checking…",
+    available: "available",
+    "needs-auth": "needs auth",
+    unreachable: "unreachable",
+    "on-demand": "on-demand",
+    "already-running": "running",
+  }[s] || s;
 }
 
 // --- tiny DOM helpers ---

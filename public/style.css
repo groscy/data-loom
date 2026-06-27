@@ -123,3 +123,59 @@ main { padding: 22px; height: calc(100% - 52px); overflow: auto; }
 .detail code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
 
 .empty-state { color: var(--muted); padding: 40px; text-align: center; }
+
+/* views */
+.view { display: none; }
+.view.active { display: block; }
+
+/* topology (HOW tab) */
+.topo-legend { display: flex; gap: 18px; align-items: center; color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.topo-legend .swatch { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--edge); vertical-align: middle; margin-right: 5px; }
+.topo-legend .swatch.dashed { border-top-style: dashed; }
+.topo-hint { margin-left: auto; color: var(--border); }
+
+.topo-wrap { position: relative; min-height: 560px; }
+#topo-nodes { position: absolute; inset: 0; z-index: 1; }
+
+.topo-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  width: 168px;
+  text-align: center;
+}
+.topo-node.hub {
+  background: var(--panel-2);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 24px rgba(110, 168, 254, 0.18);
+  width: 150px;
+}
+.topo-name { font-weight: 600; word-break: break-word; }
+.topo-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.topo-state { font-size: 11px; color: var(--muted); margin-top: 7px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.live-unknown .live-dot { background: var(--muted); }
+.live-checking .live-dot { background: var(--progress); }
+.live-available .live-dot, .live-already-running .live-dot { background: var(--done); }
+.live-needs-auth .live-dot { background: #c79a3a; }
+.live-unreachable .live-dot { background: var(--warn); }
+.live-on-demand .live-dot { background: var(--accent); }
+
+.topo-check {
+  margin-top: 9px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 3px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.topo-check:hover { border-color: var(--accent); color: var(--text); }
+
+.topo-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%, 60px); color: var(--muted); }
