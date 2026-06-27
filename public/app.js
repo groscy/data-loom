@@ -145,15 +145,18 @@ function renderBoard() {
   }
 
   const byName = new Map(model.changes.map((c) => [c.name, c]));
-  for (const phase of model.phases) {
-    const col = el("div", "phase-col");
-    col.appendChild(el("div", "phase-head", `Phase <b>${phase.phase}</b>`));
+  model.phases.forEach((phase, i) => {
+    if (i > 0) board.appendChild(el("div", "phase-arrow", "↓"));
+    const band = el("div", "phase-band");
+    band.appendChild(el("div", "phase-head", `Phase <b>${phase.phase}</b>`));
+    const row = el("div", "phase-band-cards");
     for (const name of phase.changeNames) {
       const c = byName.get(name);
-      if (c) col.appendChild(renderCard(c));
+      if (c) row.appendChild(renderCard(c));
     }
-    board.appendChild(col);
-  }
+    band.appendChild(row);
+    board.appendChild(band);
+  });
 }
 
 function renderCard(c) {
@@ -217,7 +220,9 @@ function renderDoneBand() {
 }
 
 function drawEdges() {
-  edgesSvg.innerHTML = "";
+  edgesSvg.innerHTML =
+    '<defs><marker id="dep-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">' +
+    '<path d="M2 1L8 5L2 9" fill="none" stroke="var(--edge)" stroke-width="1.5"/></marker></defs>';
   if (!model) return;
   const wrap = board.parentElement.getBoundingClientRect();
   for (const c of model.changes) {
@@ -229,15 +234,28 @@ function drawEdges() {
       if (!fromEl) continue;
       const f = fromEl.getBoundingClientRect();
       const t = toEl.getBoundingClientRect();
-      // dependency (earlier phase, left) -> dependent (later phase, right)
-      const x1 = f.right - wrap.left;
-      const y1 = f.top - wrap.top + f.height / 2;
-      const x2 = t.left - wrap.left;
-      const y2 = t.top - wrap.top + t.height / 2;
-      const mx = (x1 + x2) / 2;
-      edgesSvg.appendChild(
-        path(`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`),
-      );
+      let d;
+      if (t.top >= f.bottom - 4) {
+        // dependent sits in a lower band -> vertical connector (bottom -> top)
+        const x1 = f.left - wrap.left + f.width / 2;
+        const y1 = f.bottom - wrap.top;
+        const x2 = t.left - wrap.left + t.width / 2;
+        const y2 = t.top - wrap.top;
+        const my = (y1 + y2) / 2;
+        d = `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+      } else {
+        // same band -> horizontal connector (right -> left)
+        const x1 = f.right - wrap.left;
+        const y1 = f.top - wrap.top + f.height / 2;
+        const x2 = t.left - wrap.left;
+        const y2 = t.top - wrap.top + t.height / 2;
+        const mx = (x1 + x2) / 2;
+        d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+      }
+      const p = path(d);
+      p.setAttribute("stroke-dasharray", "5 4");
+      p.setAttribute("marker-end", "url(#dep-arrow)");
+      edgesSvg.appendChild(p);
     }
   }
 }
