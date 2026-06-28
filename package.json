@@ -24,7 +24,7 @@
   "devDependencies": {
     "@types/node": "^22.7.0",
     "@types/ws": "^8.5.12",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.25.0",
     "png-to-ico": "^2.1.8",
     "postject": "^1.0.0-alpha.6",
     "rcedit": "^4.0.1",
