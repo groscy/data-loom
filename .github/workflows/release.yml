@@ -25,8 +25,17 @@ jobs:
       - name: Build standalone executable
         run: npm run package
 
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash build/DataLoom.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  DataLoom.exe" | Set-Content -Path build/DataLoom.exe.sha256 -Encoding ascii
+          Write-Host "SHA-256: $hash"
+
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/DataLoom.exe
+          files: |
+            build/DataLoom.exe
+            build/DataLoom.exe.sha256
           fail_on_unmatched_files: true

@@ -3,7 +3,8 @@
 // user's own authenticated Claude — can determine and apply the order.
 // Holds no credentials; tools carry only proposal text and change names.
 
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -21,14 +22,44 @@ When you connect, call list_open_proposals and look at each proposal's "dependen
   2. PROPOSE the dependencies — or that it is independent — to the user in plain language, with your reasoning.
   3. Only AFTER the user confirms, record the result: call set_dependency(from, to) for each confirmed edge, or mark_independent(change) for a change that genuinely depends on nothing.
 
-Never write a dependency the user has not confirmed. Proposals already marked "declared" need no action.`;
+Never write a dependency the user has not confirmed. Proposals already marked "declared" need no action.
+
+Tip: call install_weave_skill once to add a \`/loom:weave\` command (written to the user's global Claude config) that runs this whole review in one step; the user reloads Claude Code to pick it up.`;
+
+// The `/loom:weave` slash command this server installs into the user's global
+// Claude commands dir. Static content that only orchestrates this server's tools.
+const WEAVE_COMMAND = `---
+name: "Loom: Weave"
+description: "Review the open proposals and weave their dependency order via the data-loom MCP server"
+category: Workflow
+tags: [loom, dependencies, mcp, review]
+---
+
+Weave the dependency order of this project's open OpenSpec proposals, using the **data-loom** MCP server.
+
+**Prerequisite:** the data-loom MCP server must be registered in this session — its tools are \`list_open_proposals\`, \`set_dependency\`, and \`mark_independent\`. If those tools are not available, tell the user to register it (\`claude mcp add data-loom -- DataLoom.exe mcp "<project path>"\`) and stop.
+
+Steps:
+
+1. Call \`list_open_proposals\` and note each proposal's \`dependencyReview\` state.
+2. Focus on the proposals whose state is \`pending\` (no \`## Depends On\` declaration yet). Proposals already \`declared\` need no action — leave them alone.
+3. Read the pending proposals alongside the others. Reason about which change should be implemented **after** which, from their capabilities and content: a change that extends or modifies what another change introduces depends on it; changes that touch disjoint areas are independent.
+4. **Propose** your conclusion to the user in plain language — for each pending proposal, the dependencies you would record (or that it is independent), each with a one-line reason. Do not write anything yet.
+5. **Wait for the user to confirm.** Never write a dependency the user has not approved.
+6. After the user confirms, record it:
+   - \`set_dependency(from, to)\` for each confirmed edge (the dependent is \`from\`).
+   - \`mark_independent(change)\` for a proposal the user confirms depends on nothing.
+7. Call \`list_open_proposals\` again and report the resulting phases — what moved, and what is now ready versus blocked.
+
+The reasoning stays the user's to approve: you surface and apply, the user decides.
+`;
 
 export async function runMcpServer(project: string): Promise<void> {
   const client = new OpenSpecClient(project);
   const changesDir = join(project, "openspec", "changes");
 
   const server = new Server(
-    { name: "data-loom", version: "0.2.0" },
+    { name: "data-loom", version: "0.2.1" },
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
 
@@ -67,6 +98,12 @@ export async function runMcpServer(project: string): Promise<void> {
           additionalProperties: false,
         },
       },
+      {
+        name: "install_weave_skill",
+        description:
+          "Install the `/loom:weave` slash command into the user's global Claude commands directory (~/.claude/commands/loom/weave.md), so this dependency review can be run as a single command from any project where this server is registered. Writes a static command file only (no project data or secrets) and overwrites any existing copy. Run once, then the user reloads Claude Code.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      },
     ],
   }));
 
@@ -84,6 +121,9 @@ export async function runMcpServer(project: string): Promise<void> {
       if (name === "mark_independent") {
         const change = String((args as Record<string, unknown>)?.change ?? "");
         return ok(await markIndependent(client, changesDir, change));
+      }
+      if (name === "install_weave_skill") {
+        return ok(await installWeaveSkill());
       }
       return err(`unknown tool: ${name}`);
     } catch (e) {
@@ -160,6 +200,24 @@ async function markIndependent(client: OpenSpecClient, changesDir: string, chang
   if (written) await writeFile(path, updated);
 
   return { change, written, dependencyReview: "declared" as const };
+}
+
+/**
+ * Provision the `/loom:weave` command into the user's GLOBAL Claude commands
+ * dir, so the review runs as one command from any project where this server is
+ * registered. Writes only the static command file; overwrites in place.
+ */
+async function installWeaveSkill() {
+  const dir = join(homedir(), ".claude", "commands", "loom");
+  const path = join(dir, "weave.md");
+  await mkdir(dir, { recursive: true });
+  await writeFile(path, WEAVE_COMMAND);
+  return {
+    installed: true,
+    command: "/loom:weave",
+    path,
+    note: "Reload Claude Code (restart the session) to pick up the new /loom:weave command.",
+  };
 }
 
 /** Add `- <dep>` under a `## Depends On` section, creating the section if absent. */

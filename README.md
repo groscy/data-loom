@@ -30,6 +30,21 @@ npm install -g openspec
 
 > Releases are built automatically by CI on version tags (`vX.Y.Z`) via GitHub Actions and published as a downloadable asset.
 
+## Verifying your download (and the SmartScreen warning)
+
+`DataLoom.exe` is an **unsigned** open-source build, so Windows SmartScreen shows *“Windows protected your PC.”* That is expected for an unrecognized publisher — to run it anyway, click **More info → Run anyway**. (Code signing is the real fix and is planned; until the build is signed, the warning will keep appearing.)
+
+To confirm your download was not tampered with, verify it against the published `DataLoom.exe.sha256` (on the same [Releases](../../releases) page). In PowerShell, from the folder holding both files:
+
+```powershell
+(Get-FileHash .\DataLoom.exe -Algorithm SHA256).Hash -eq (Get-Content .\DataLoom.exe.sha256).Split(' ')[0]
+# True  →  the download matches the published checksum
+```
+
+A checksum proves **integrity** (the bytes are exactly what CI built), not publisher trust — only code signing removes the SmartScreen prompt.
+
+> **Maintainers:** if Microsoft Defender flags a release as a false positive, submit the executable at <https://www.microsoft.com/wdsi/filesubmission> to get it cleared.
+
 ## Run from source (development)
 
 Requires Node.js ≥ 20.
@@ -64,8 +79,11 @@ DataLoom can also run as an **MCP server**, so your own Claude session determine
    - `list_open_proposals` — the open changes with their proposal text, current phase/readiness, and dependency-review state (read-only; proposal text only, no secrets).
    - `set_dependency(from, to)` — writes a `## Depends On` entry into a proposal.
    - `mark_independent(change)` — records that a proposal genuinely depends on nothing, by writing an empty `## Depends On` block.
+   - `install_weave_skill` — installs the `/loom:weave` shortcut command (one-time setup, see below).
 
    Each write is an explicit, reviewable `## Depends On` edit; the roadmap then recomputes deterministically. Proposals that still need a dependency decision are flagged in the roadmap with a **"needs review"** badge, and DataLoom appears as a server in its own MCP Topology tab once registered.
+
+3. **One command for it all: `/loom:weave`.** Ask Claude to *"install the weave skill"* (it calls `install_weave_skill`). That writes a `/loom:weave` slash command into your global Claude config (`~/.claude/commands/loom/weave.md`); reload Claude Code, and from then on `/loom:weave` runs the whole review — list, propose, confirm, apply — in any project where DataLoom is registered.
 
 ## Design principles
 
