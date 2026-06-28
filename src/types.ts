@@ -5,6 +5,13 @@ export type Status = "draft" | "in-progress" | "done";
 /** Whether an open proposal can be implemented now. Finer than phase. */
 export type Readiness = "ready" | "blocked" | "done";
 
+/**
+ * Whether a change has been reviewed for dependencies. `declared` once its
+ * proposal has a `## Depends On` heading (even an empty one); otherwise
+ * `pending`. Metadata only — never affects phase, edges, or readiness.
+ */
+export type DependencyReview = "pending" | "declared";
+
 /** One roadmap node = one OpenSpec change. */
 export interface ChangeNode {
   name: string;
@@ -19,6 +26,8 @@ export interface ChangeNode {
   dependsOn: string[];
   /** Modified capabilities with no introducing change and no spec baseline (surfaced fully in Phase 2's conflict change). */
   unsatisfiedDependencies: string[];
+  /** Dependency-review state, derived from the presence of a `## Depends On` heading. Metadata only. */
+  dependencyReview: DependencyReview;
   archived: boolean;
   completedTasks: number;
   totalTasks: number;

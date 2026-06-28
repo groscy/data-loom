@@ -24,6 +24,13 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
   await Promise.all(
     names.map(async (n) => explicitDeps.set(n, await client.readProposalDependsOn(n))),
   );
+
+  // Dependency-review state: whether a `## Depends On` section exists at all
+  // (even empty). Pure metadata — never feeds the edges or phases below.
+  const reviewed = new Map<string, boolean>();
+  await Promise.all(
+    names.map(async (n) => reviewed.set(n, await client.hasDependsOnSection(n))),
+  );
   const nameSet = new Set(names);
   const archivedBare = new Set(archived.map((a) => a.replace(/^\d{4}-\d{2}-\d{2}-/, "")));
 
@@ -65,6 +72,7 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
       modifiedCapabilities: modifiedCaps,
       dependsOn: [...dependsOn],
       unsatisfiedDependencies: unsatisfied,
+      dependencyReview: reviewed.get(c.name) ? "declared" : "pending",
       archived: false,
       completedTasks: c.completedTasks,
       totalTasks: c.totalTasks,
@@ -83,6 +91,7 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
       modifiedCapabilities: [],
       dependsOn: [],
       unsatisfiedDependencies: [],
+      dependencyReview: "declared",
       archived: true,
       completedTasks: 0,
       totalTasks: 0,

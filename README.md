@@ -48,6 +48,25 @@ Build the executable yourself with `npm run package` → `build/DataLoom.exe`. (
 - **Roadmap tab**: changes by phase × status. Click a node to inspect its phase, status, and the capabilities it adds/modifies. A conflicts banner appears if the dependency graph has a cycle or a dangling dependency.
 - **MCP Topology tab**: your servers around the Claude Code hub. Click **check** on a server to passively probe it — DataLoom never starts a server or its backing app; it only reports what's reachable so you know what to start yourself.
 
+## Plan dependencies with your Claude (MCP server)
+
+DataLoom can also run as an **MCP server**, so your own Claude session determines and applies the order of interdependent proposals — DataLoom holds no API key and the reasoning runs under your authenticated Claude.
+
+1. Register it in Claude Code (stdio server):
+
+   ```
+   claude mcp add data-loom -- DataLoom.exe mcp "C:\path\to\your\project"
+   ```
+
+   (From source: `node dist/index.js mcp "C:\path\to\project"`.)
+
+2. In that project, ask Claude something like *"review DataLoom's open proposals and set the dependencies."* On connect, the server asks Claude to surface any proposal that hasn't been reviewed for dependencies yet, propose the edges, and **confirm with you before writing**. It exposes three tools:
+   - `list_open_proposals` — the open changes with their proposal text, current phase/readiness, and dependency-review state (read-only; proposal text only, no secrets).
+   - `set_dependency(from, to)` — writes a `## Depends On` entry into a proposal.
+   - `mark_independent(change)` — records that a proposal genuinely depends on nothing, by writing an empty `## Depends On` block.
+
+   Each write is an explicit, reviewable `## Depends On` edit; the roadmap then recomputes deterministically. Proposals that still need a dependency decision are flagged in the roadmap with a **"needs review"** badge, and DataLoom appears as a server in its own MCP Topology tab once registered.
+
 ## Design principles
 
 - **Derived, not stored** — phase/order is a pure function of the OpenSpec files, recomputed on every change. Nothing about ordering is persisted.

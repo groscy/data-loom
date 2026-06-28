@@ -9,6 +9,7 @@ const connDot = document.getElementById("conn-dot");
 const connText = document.getElementById("conn-text");
 const genEl = document.getElementById("gen");
 const conflictsEl = document.getElementById("conflicts");
+const reviewEl = document.getElementById("review");
 const projectSelect = document.getElementById("project-select");
 
 let projects = null;
@@ -111,6 +112,7 @@ function render(m) {
   genEl.textContent = m.generatedAt ? "· " + new Date(m.generatedAt).toLocaleTimeString() : "";
   conflictedNames = new Set((m.conflicts || []).flatMap((c) => c.changes));
   renderConflicts(m.conflicts || []);
+  renderReview();
   // Recommended next = ready proposals in the earliest phase that has any.
   const ready = m.changes.filter((c) => !c.archived && c.readiness === "ready");
   const minPhase = ready.length ? Math.min(...ready.map((c) => c.phase)) : 0;
@@ -133,6 +135,22 @@ function renderConflicts(conflicts) {
     conflicts
       .map((c) => `<div class="conflict-item conflict-${c.type}">${escapeHtml(c.description)}</div>`)
       .join("");
+}
+
+function renderReview() {
+  // Open changes that have never been reviewed for dependencies.
+  const pending = model.changes.filter((c) => !c.archived && c.dependencyReview === "pending");
+  const n = pending.length;
+  if (!n) {
+    reviewEl.classList.add("hidden");
+    reviewEl.innerHTML = "";
+    return;
+  }
+  reviewEl.classList.remove("hidden");
+  const subject = n > 1 ? "proposals need" : "proposal needs";
+  reviewEl.innerHTML =
+    `<span class="review-badge">${n}</span>` +
+    `<span>${subject} dependency review — ask Claude to review ${n > 1 ? "them" : "it"} via the data-loom MCP server.</span>`;
 }
 
 function renderBoard() {
@@ -162,13 +180,17 @@ function renderBoard() {
 function renderCard(c) {
   const warn = conflictedNames.has(c.name) || c.unsatisfiedDependencies.length > 0;
   const next = nextUpNames.has(c.name);
-  const card = el("div", `card s-${c.status}${warn ? " warn" : ""}${next ? " next" : ""}`);
+  const review = !c.archived && c.dependencyReview === "pending";
+  const card = el("div", `card s-${c.status}${warn ? " warn" : ""}${next ? " next" : ""}${review ? " needs-review" : ""}`);
   card.appendChild(el("div", "card-name", c.name));
 
   const meta = el("div", "card-meta");
   meta.appendChild(el("span", `pill s-${c.status}`, c.status));
   if (!c.archived && c.readiness !== "done") {
     meta.appendChild(el("span", `pill r-${c.readiness}`, c.readiness));
+  }
+  if (review) {
+    meta.appendChild(el("span", "pill review", "review?"));
   }
   if (c.totalTasks > 0) {
     meta.appendChild(el("span", "tasks-mini", `${c.completedTasks}/${c.totalTasks} tasks`));

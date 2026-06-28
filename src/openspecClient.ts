@@ -101,6 +101,20 @@ export class OpenSpecClient {
     }
   }
 
+  /**
+   * Whether the proposal declares a `## Depends On` section at all — even an
+   * empty one. Distinct from {@link readProposalDependsOn}, which reports the
+   * entries: a present-but-empty section means "reviewed, depends on nothing".
+   */
+  async hasDependsOnSection(name: string): Promise<boolean> {
+    const path = join(this.openspecDir(), "changes", name, "proposal.md");
+    try {
+      return DEPENDS_ON_HEADING.test(await readFile(path, "utf8"));
+    } catch {
+      return false;
+    }
+  }
+
   /** Archived change names (completed nodes shown in the done band). */
   async listArchived(): Promise<string[]> {
     return this.listDirNames(join(this.openspecDir(), "changes", "archive"));
@@ -129,6 +143,9 @@ function parseLooseJson<T>(s: string): T {
   }
   return JSON.parse(s.slice(start)) as T;
 }
+
+/** The `## Depends On` section heading — used for both detection and parsing. */
+const DEPENDS_ON_HEADING = /(?:^|\n)##\s+Depends On\b/;
 
 /** Extract `- <change-name>` bullets under a `## Depends On` heading. */
 function dependsOnInSection(text: string): string[] {
