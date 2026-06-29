@@ -59,7 +59,7 @@ export async function runMcpServer(project: string): Promise<void> {
   const changesDir = join(project, "openspec", "changes");
 
   const server = new Server(
-    { name: "data-loom", version: "0.2.3" },
+    { name: "data-loom", version: "0.2.4" },
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
 

@@ -24,13 +24,13 @@ Requires [Node.js](https://nodejs.org) ≥ 20.
 Run it directly with `npx` (no install), pointing at a project (any directory containing an `openspec/` workspace):
 
 ```
-npx data-loom "C:\path\to\your\project"
+npx @lyric_dev/data-loom "C:\path\to\your\project"
 ```
 
 Or install it globally and run the `data-loom` command:
 
 ```
-npm install -g data-loom
+npm install -g @lyric_dev/data-loom
 data-loom "C:\path\to\your\project"
 ```
 
@@ -48,7 +48,7 @@ npm start            # serves the current directory's project
 # or: npm start -- "C:\path\to\project"
 ```
 
-(The npm package id is `data-loom`, lowercase per npm rules; the product is branded **DataLoom**.)
+(The npm package is `@lyric_dev/data-loom` — unscoped `data-loom` is blocked by npm as too similar to an existing package; the product is branded **DataLoom** and installs a `data-loom` command.)
 
 ## Using the dashboard
 
@@ -63,7 +63,7 @@ DataLoom can also run as an **MCP server**, so your own Claude session determine
 1. Register it in Claude Code (stdio server):
 
    ```
-   claude mcp add data-loom -- npx data-loom mcp "C:\path\to\your\project"
+   claude mcp add data-loom -- npx @lyric_dev/data-loom mcp "C:\path\to\your\project"
    ```
 
    (From source: `node dist/index.js mcp "C:\path\to\project"`.)
