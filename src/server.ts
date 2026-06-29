@@ -1,8 +1,9 @@
 // Serve the SPA on loopback and push roadmap + MCP + project state over a websocket.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
-import { extname } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -47,52 +48,111 @@ export async function startServer(opts: {
     }
   };
 
+  // Loopback origin/host allowlist — the DNS-rebinding + CSRF guard. Built from
+  // the actually-bound port after listen; seeded from the requested port so the
+  // guard is active from the first request.
+  const loopbackHosts = ["127.0.0.1", "localhost", "[::1]"];
+  let allowedAuthorities = new Set<string>();
+  const setAllowed = (p: number): void => {
+    allowedAuthorities = new Set(loopbackHosts.map((h) => `${h}:${p}`));
+  };
+  setAllowed(port);
+
+  // Reject what a hostile web page or a rebound DNS name could mount: a Host
+  // that is not our loopback authority (DNS rebinding), or any *present* Origin
+  // that is not a loopback origin (CSRF). An absent Origin = a native, non-
+  // browser client (e.g. Claude Code), which is allowed.
+  const isAllowed = (req: IncomingMessage): boolean => {
+    const host = req.headers.host;
+    if (!host || !allowedAuthorities.has(host)) return false;
+    const origin = req.headers.origin;
+    if (origin) {
+      try {
+        if (!allowedAuthorities.has(new URL(origin).host)) return false;
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  };
+
   // One MCP server + transport per client session (stateful Streamable-HTTP),
-  // keyed by the session id. Each session's tools resolve their target project
-  // per call from getCurrentProject (see mcpServer.ts), so one daemon serves
-  // every project.
-  const mcpTransports = new Map<string, StreamableHTTPServerTransport>();
+  // keyed by session id. Sessions are capped and idle-evicted so churn cannot
+  // grow memory without bound. Tools resolve their target project per call from
+  // getCurrentProject (see mcpServer.ts), so one daemon serves every project.
+  const MAX_SESSIONS = 32;
+  const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
+  interface McpSession {
+    transport: StreamableHTTPServerTransport;
+    lastSeen: number;
+  }
+  const mcpSessions = new Map<string, McpSession>();
+
+  const idleSweep = setInterval(() => {
+    const now = Date.now();
+    for (const [sid, s] of mcpSessions) {
+      if (now - s.lastSeen > SESSION_IDLE_TTL_MS) {
+        mcpSessions.delete(sid);
+        void s.transport.close();
+      }
+    }
+  }, 60 * 1000);
+  idleSweep.unref();
 
   const handleMcp = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
     try {
       if (req.method === "POST") {
         const body = await readJsonBody(req);
-        let transport = sessionId ? mcpTransports.get(sessionId) : undefined;
-        if (!transport) {
-          if (!isInitializeRequest(body)) {
-            return sendError(res, 400, "missing or invalid mcp-session-id");
-          }
-          transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => randomUUID(),
-            onsessioninitialized: (sid) => {
-              mcpTransports.set(sid, transport!);
-            },
-          });
-          transport.onclose = () => {
-            if (transport!.sessionId) mcpTransports.delete(transport!.sessionId);
-          };
-          await createMcpServer({ getCurrentProject }).connect(transport);
+        const existing = sessionId ? mcpSessions.get(sessionId) : undefined;
+        if (existing) {
+          existing.lastSeen = Date.now();
+          await existing.transport.handleRequest(req, res, body);
+          return;
         }
+        if (!isInitializeRequest(body)) {
+          return sendError(res, 400, "missing or invalid mcp-session-id");
+        }
+        if (mcpSessions.size >= MAX_SESSIONS) {
+          return sendError(res, 503, "too many sessions");
+        }
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (sid) => {
+            mcpSessions.set(sid, { transport, lastSeen: Date.now() });
+          },
+        });
+        transport.onclose = () => {
+          if (transport.sessionId) mcpSessions.delete(transport.sessionId);
+        };
+        await createMcpServer({ getCurrentProject }).connect(transport);
         await transport.handleRequest(req, res, body);
         return;
       }
       if (req.method === "GET" || req.method === "DELETE") {
-        const transport = sessionId ? mcpTransports.get(sessionId) : undefined;
-        if (!transport) return sendError(res, 400, "missing or invalid mcp-session-id");
-        await transport.handleRequest(req, res);
+        const s = sessionId ? mcpSessions.get(sessionId) : undefined;
+        if (!s) return sendError(res, 400, "missing or invalid mcp-session-id");
+        s.lastSeen = Date.now();
+        await s.transport.handleRequest(req, res);
         return;
       }
       return sendError(res, 405, "method not allowed");
     } catch (e) {
-      if (!res.headersSent) {
-        sendError(res, 500, e instanceof Error ? e.message : "mcp error");
+      if (e instanceof PayloadTooLargeError) {
+        if (!res.headersSent) sendError(res, 413, "request body too large");
+        return;
       }
+      // Unexpected failures stay in the server log; the client gets nothing
+      // about the host (no paths, no stack).
+      console.error("[data-loom] mcp request error:", e);
+      if (!res.headersSent) sendError(res, 500, "internal error");
     }
   };
 
   const http = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {
+      if (!isAllowed(req)) return sendError(res, 403, "forbidden");
+
       const url = new URL(req.url ?? "/", `http://${host}`);
 
       if (url.pathname === "/mcp") return handleMcp(req, res);
@@ -117,9 +177,12 @@ export async function startServer(opts: {
         }
       }
 
-      // static assets (served from public/ on the filesystem)
+      // static assets (served from public/ on the filesystem) — resolve and
+      // assert the path stays within publicDir before reading.
       const rel = url.pathname === "/" ? "index.html" : url.pathname.replace(/^\/+/, "");
-      if (rel.includes("..")) return sendError(res, 403, "forbidden");
+      const root = resolve(publicDir);
+      const full = resolve(root, rel);
+      if (full !== root && !full.startsWith(root + sep)) return sendError(res, 403, "forbidden");
       const file = await loadAsset(rel, publicDir);
       if (!file) return sendError(res, 404, "not found");
       res.writeHead(200, { "content-type": MIME[extname(rel)] ?? "application/octet-stream" });
@@ -129,7 +192,10 @@ export async function startServer(opts: {
     }
   });
 
-  wss = new WebSocketServer({ server: http });
+  wss = new WebSocketServer({
+    server: http,
+    verifyClient: (info: { req: IncomingMessage }) => isAllowed(info.req),
+  });
   wss.on("connection", async (ws) => {
     const roadmap = getRoadmap();
     if (roadmap) ws.send(JSON.stringify({ type: "model", model: roadmap }));
@@ -141,12 +207,15 @@ export async function startServer(opts: {
     }
   });
 
-  await new Promise<void>((resolve) => http.listen(port, host, resolve));
+  await new Promise<void>((ready) => http.listen(port, host, ready));
+  const actualPort = (http.address() as AddressInfo | null)?.port ?? port;
+  setAllowed(actualPort);
 
   return {
-    port,
+    port: actualPort,
     broadcast,
     close: () => {
+      clearInterval(idleSweep);
       wss.close();
       http.close();
     },
@@ -163,12 +232,31 @@ function sendError(res: ServerResponse, code: number, message: string): void {
   res.end(JSON.stringify({ error: message }));
 }
 
+/** Raised when a request body exceeds the cap; mapped to HTTP 413. */
+class PayloadTooLargeError extends Error {}
+
+/** Largest request body we will buffer (JSON-RPC tool calls are tiny). */
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+
 /** Read and JSON-parse a request body; returns undefined for an empty body. */
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let data = "";
-    req.on("data", (chunk) => (data += chunk));
+    let size = 0;
+    let aborted = false;
+    req.on("data", (chunk) => {
+      if (aborted) return;
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        aborted = true;
+        reject(new PayloadTooLargeError("request body too large"));
+        req.destroy();
+        return;
+      }
+      data += chunk;
+    });
     req.on("end", () => {
+      if (aborted) return;
       if (!data) return resolve(undefined);
       try {
         resolve(JSON.parse(data));

@@ -81,6 +81,17 @@ The running daemon also **hosts an MCP server** over HTTP, so your own Claude se
 
 > **Upgrading from an earlier version?** The MCP server used to be a per-project stdio registration (`claude mcp add data-loom -- npx … mcp "<path>"`). That mode is gone. Remove any old per-project `data-loom` registrations and add the single user-scope HTTP one above.
 
+## Security
+
+DataLoom runs entirely on `127.0.0.1` and is built for a single local user.
+
+- **Loopback only** — the daemon (dashboard, WebSocket, and MCP endpoint) binds to the loopback interface and is never exposed to the network.
+- **Host + Origin validated** — every HTTP request and WebSocket upgrade is checked: requests with a non-loopback `Host` (DNS-rebinding) or a non-loopback `Origin` (cross-site requests from a web page) are rejected. Native MCP clients (which send no `Origin`) are allowed. This is what keeps a random website you visit from driving the daemon.
+- **No secrets** — the MCP tools carry only proposal text and change names; the topology view redacts server commands/args and shows scheme+host only. No API keys or config are read or returned, and the daemon holds no credential.
+- **Bounded** — request bodies are capped (4 MB) and MCP sessions are capped and idle-evicted, so a local client can't exhaust memory.
+
+The MCP tools can read and write any OpenSpec workspace path you point them at (this is intentional, so the tool can stay LLM-provider-independent). That means: treat the daemon as you would any local dev server — fine for your own machine, not something to run on a shared/multi-user host.
+
 ## Design principles
 
 - **Derived, not stored** — phase/order is a pure function of the OpenSpec files, recomputed on every change. Nothing about ordering is persisted.

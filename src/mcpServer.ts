@@ -24,6 +24,14 @@ export interface McpDeps {
   getCurrentProject: () => string | null;
 }
 
+/**
+ * A validation error whose message is safe to return to the client because it
+ * only references caller-supplied input (a change name, a path the caller named).
+ * Anything that is NOT a ToolError is treated as an unexpected internal failure
+ * and reported generically, so host filesystem detail never leaks.
+ */
+class ToolError extends Error {}
+
 // Advertised to the client on connect. The "confirm before writing" gate lives
 // here, in the agent's behavior — the server cannot verify a human approved.
 const INSTRUCTIONS = `This server exposes a project's open OpenSpec proposals and lets you record the dependency order between them. It holds no model and cannot infer anything on its own — the judgment is yours and the decision is the user's.
@@ -81,7 +89,7 @@ const PROJECT_ARG = {
  */
 export function createMcpServer(deps: McpDeps): Server {
   const server = new Server(
-    { name: "data-loom", version: "0.4.0" },
+    { name: "data-loom", version: "0.4.1" },
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
 
@@ -91,13 +99,13 @@ export function createMcpServer(deps: McpDeps): Server {
   const resolveProject = (explicit?: unknown): string => {
     const raw = typeof explicit === "string" && explicit.trim() ? explicit : deps.getCurrentProject();
     if (!raw) {
-      throw new Error(
+      throw new ToolError(
         "No `project` given and no project is selected in the DataLoom dashboard. Call list_projects to see the available OpenSpec workspaces, then pass one as the `project` argument.",
       );
     }
     const abs = resolve(raw);
     if (!isViewableProject(abs)) {
-      throw new Error(
+      throw new ToolError(
         `${abs} is not an OpenSpec workspace (no openspec/ directory). Call list_projects to see the available workspaces.`,
       );
     }
@@ -190,7 +198,11 @@ export function createMcpServer(deps: McpDeps): Server {
       }
       return err(`unknown tool: ${name}`);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      // Validation errors (caller-supplied input) are safe to surface; anything
+      // else is an unexpected internal failure → generic message, detail to log.
+      if (e instanceof ToolError) return err(e.message);
+      console.error("[data-loom mcp] tool error:", e);
+      return err("internal error");
     }
   });
 
@@ -240,11 +252,11 @@ async function setDependency(
   from: string,
   to: string,
 ) {
-  if (!from || !to) throw new Error("both 'from' and 'to' are required");
-  if (from === to) throw new Error("a change cannot depend on itself");
+  if (!from || !to) throw new ToolError("both 'from' and 'to' are required");
+  if (from === to) throw new ToolError("a change cannot depend on itself");
   const names = new Set((await openChanges(client)).map((c) => c.name));
-  if (!names.has(from)) throw new Error(`unknown open change: ${from}`);
-  if (!names.has(to)) throw new Error(`unknown open change: ${to}`);
+  if (!names.has(from)) throw new ToolError(`unknown open change: ${from}`);
+  if (!names.has(to)) throw new ToolError(`unknown open change: ${to}`);
 
   const path = join(changesDir, from, "proposal.md");
   const text = await readFile(path, "utf8");
@@ -261,9 +273,9 @@ async function markIndependent(
   project: string,
   change: string,
 ) {
-  if (!change) throw new Error("'change' is required");
+  if (!change) throw new ToolError("'change' is required");
   const names = new Set((await openChanges(client)).map((c) => c.name));
-  if (!names.has(change)) throw new Error(`unknown open change: ${change}`);
+  if (!names.has(change)) throw new ToolError(`unknown open change: ${change}`);
 
   const path = join(changesDir, change, "proposal.md");
   const text = await readFile(path, "utf8");
