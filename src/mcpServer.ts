@@ -37,7 +37,7 @@ tags: [loom, dependencies, mcp, review]
 
 Weave the dependency order of this project's open OpenSpec proposals, using the **data-loom** MCP server.
 
-**Prerequisite:** the data-loom MCP server must be registered in this session — its tools are \`list_open_proposals\`, \`set_dependency\`, and \`mark_independent\`. If those tools are not available, tell the user to register it (\`claude mcp add data-loom -- npx data-loom mcp "<project path>"\`) and stop.
+**Prerequisite:** the data-loom MCP server must be registered in this session — its tools are \`list_open_proposals\`, \`set_dependency\`, and \`mark_independent\`. If those tools are not available, tell the user to register it (\`claude mcp add data-loom -- npx @lyric_dev/data-loom mcp "<project path>"\`) and stop.
 
 Steps:
 
