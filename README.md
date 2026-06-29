@@ -58,25 +58,28 @@ npm start            # serves the current directory's project
 
 ## Plan dependencies with your Claude (MCP server)
 
-DataLoom can also run as an **MCP server**, so your own Claude session determines and applies the order of interdependent proposals — DataLoom holds no API key and the reasoning runs under your authenticated Claude.
+The running daemon also **hosts an MCP server** over HTTP, so your own Claude session determines and applies the order of interdependent proposals — DataLoom holds no API key and the reasoning runs under your authenticated Claude. One registration serves **every** project; the target project is resolved per call (an explicit `project` argument, falling back to whatever the dashboard has selected).
 
-1. Register it in Claude Code (stdio server):
+1. Register it once, globally — no per-project setup:
 
    ```
-   claude mcp add data-loom -- npx @lyric_dev/data-loom mcp "C:\path\to\your\project"
+   claude mcp add --transport http --scope user data-loom http://127.0.0.1:4317/mcp
    ```
 
-   (From source: `node dist/index.js mcp "C:\path\to\project"`.)
+   The MCP server lives in the daemon, so **DataLoom must be running** for the tools to be reachable (start it with `npx @lyric_dev/data-loom "C:\path\to\your\project"`). It binds to loopback only.
 
-2. In that project, ask Claude something like *"review DataLoom's open proposals and set the dependencies."* On connect, the server asks Claude to surface any proposal that hasn't been reviewed for dependencies yet, propose the edges, and **confirm with you before writing**. It exposes three tools:
-   - `list_open_proposals` — the open changes with their proposal text, current phase/readiness, and dependency-review state (read-only; proposal text only, no secrets).
-   - `set_dependency(from, to)` — writes a `## Depends On` entry into a proposal.
-   - `mark_independent(change)` — records that a proposal genuinely depends on nothing, by writing an empty `## Depends On` block.
+2. In any project, ask Claude something like *"review DataLoom's open proposals and set the dependencies."* On connect, the server asks Claude to surface any proposal that hasn't been reviewed for dependencies yet, propose the edges, and **confirm with you before writing**. It exposes these tools:
+   - `list_projects` — the selectable OpenSpec workspaces plus the current selection (read-only), to discover/confirm a `project` path.
+   - `list_open_proposals(project?)` — the open changes with their proposal text, current phase/readiness, and dependency-review state (read-only; proposal text only, no secrets).
+   - `set_dependency(from, to, project?)` — writes a `## Depends On` entry into a proposal.
+   - `mark_independent(change, project?)` — records that a proposal genuinely depends on nothing, by writing an empty `## Depends On` block.
    - `install_weave_skill` — installs the `/loom:weave` shortcut command (one-time setup, see below).
 
    Each write is an explicit, reviewable `## Depends On` edit; the roadmap then recomputes deterministically. Proposals that still need a dependency decision are flagged in the roadmap with a **"needs review"** badge, and DataLoom appears as a server in its own MCP Topology tab once registered.
 
-3. **One command for it all: `/loom:weave`.** Ask Claude to *"install the weave skill"* (it calls `install_weave_skill`). That writes a `/loom:weave` slash command into your global Claude config (`~/.claude/commands/loom/weave.md`); reload Claude Code, and from then on `/loom:weave` runs the whole review — list, propose, confirm, apply — in any project where DataLoom is registered.
+3. **One command for it all: `/loom:weave`.** Ask Claude to *"install the weave skill"* (it calls `install_weave_skill`). That writes a `/loom:weave` slash command into your global Claude config (`~/.claude/commands/loom/weave.md`); reload Claude Code, and from then on `/loom:weave` runs the whole review — list, propose, confirm, apply — in any project, passing that project explicitly. (It needs the daemon running; if the tools aren't reachable it tells you to start DataLoom.)
+
+> **Upgrading from an earlier version?** The MCP server used to be a per-project stdio registration (`claude mcp add data-loom -- npx … mcp "<path>"`). That mode is gone. Remove any old per-project `data-loom` registrations and add the single user-scope HTTP one above.
 
 ## Design principles
 

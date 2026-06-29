@@ -1,6 +1,6 @@
 {
   "name": "@lyric_dev/data-loom",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local dashboard for spec-driven development: a phased OpenSpec roadmap (WHAT) and an MCP topology (HOW).",
   "type": "module",
   "license": "MIT",

@@ -13,7 +13,6 @@ import { discover } from "./mcp/discovery.js";
 import { checkServer } from "./mcp/availability.js";
 import { discoverProjects, isViewableProject, type ProjectModel } from "./projects.js";
 import { resolvePublicDir } from "./assets.js";
-import { runMcpServer } from "./mcpServer.js";
 import type { RoadmapModel } from "./types.js";
 import type { McpModel, McpServer, ProbeTarget } from "./mcp/types.js";
 
@@ -70,6 +69,7 @@ async function main(): Promise<void> {
     checkMcp,
     getProjects,
     selectProject,
+    getCurrentProject: () => session?.project ?? null,
   });
 
   console.log(`[data-loom] dashboard ready at http://${host}:${server.port}`);
@@ -160,16 +160,7 @@ function openBrowser(url: string): void {
   }
 }
 
-if (process.argv[2] === "mcp") {
-  // MCP stdio server mode: `data-loom mcp [project]`
-  const project = resolve(process.argv[3] ?? process.env.DATA_LOOM_ROOT ?? process.cwd());
-  runMcpServer(project).catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
-} else {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
