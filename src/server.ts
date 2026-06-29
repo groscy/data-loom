@@ -66,7 +66,7 @@ export async function startServer(opts: {
         }
       }
 
-      // static assets (embedded when packaged, filesystem in dev)
+      // static assets (served from public/ on the filesystem)
       const rel = url.pathname === "/" ? "index.html" : url.pathname.replace(/^\/+/, "");
       if (rel.includes("..")) return sendError(res, 403, "forbidden");
       const file = await loadAsset(rel, publicDir);

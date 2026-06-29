@@ -1,8 +1,5 @@
-# self-contained-launch Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change self-contained-multi-project. Update Purpose after archive.
-## Requirements
 ### Requirement: openspec remains an external prerequisite
 data-loom SHALL NOT bundle `openspec`. It SHALL invoke the separately-installed `openspec` CLI, and SHALL NOT start serving a blank dashboard when `openspec` is absent — instead exiting with a clear message that instructs the user to install `openspec`.
 
@@ -36,14 +33,8 @@ When launched without a valid project (no project argument and the working direc
 - **WHEN** data-loom is launched on a host without `openspec`
 - **THEN** it still exits with install guidance
 
-### Requirement: Open the dashboard on startup
-On startup the application SHALL open the default web browser to the dashboard URL, unless suppressed by an environment variable. Failure to open the browser SHALL NOT prevent the dashboard from running.
+## REMOVED Requirements
 
-#### Scenario: Browser opens on launch
-- **WHEN** the application starts and browser-opening is not suppressed
-- **THEN** it opens the default browser to the dashboard URL
-
-#### Scenario: Suppressed in headless/dev
-- **WHEN** the suppression environment variable is set
-- **THEN** the application does not open a browser but still serves the dashboard
-
+### Requirement: Standalone executable
+**Reason**: The standalone executable build is removed; data-loom is distributed via npm, which requires Node.
+**Migration**: Install the openspec CLI (`npm install -g openspec`), then run data-loom with `npx data-loom` or after `npm install -g data-loom`.

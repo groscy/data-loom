@@ -1,21 +1,43 @@
 {
   "name": "data-loom",
   "version": "0.2.2",
-  "private": true,
   "description": "Local dashboard for spec-driven development: a phased OpenSpec roadmap (WHAT) and an MCP topology (HOW).",
   "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/groscy/data-loom#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/groscy/data-loom.git"
+  },
+  "bugs": {
+    "url": "https://github.com/groscy/data-loom/issues"
+  },
+  "keywords": [
+    "openspec",
+    "mcp",
+    "dashboard",
+    "roadmap",
+    "spec-driven-development",
+    "claude-code"
+  ],
   "bin": {
     "data-loom": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "public"
+  ],
+  "engines": {
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsc && node --watch dist/index.js",
-    "bundle": "node scripts/build-exe.mjs --bundle-only",
-    "package": "node scripts/build-exe.mjs"
+    "prepublishOnly": "npm run build"
   },
-  "engines": {
-    "node": ">=20"
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -24,11 +46,6 @@
   "devDependencies": {
     "@types/node": "^22.7.0",
     "@types/ws": "^8.5.12",
-    "esbuild": "^0.25.0",
-    "png-to-ico": "^2.1.8",
-    "postject": "^1.0.0-alpha.6",
-    "rcedit": "^4.0.1",
-    "sharp": "^0.33.5",
     "typescript": "^5.6.2"
   }
 }

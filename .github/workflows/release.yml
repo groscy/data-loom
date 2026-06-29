@@ -1,41 +1,33 @@
 name: release
 
-# Build the standalone executable and publish it to a GitHub Release on version tags.
+# Publish the package to the npm registry on version tags.
 on:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+  id-token: write # for npm provenance
 
 jobs:
-  build:
-    runs-on: windows-latest
+  publish:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build standalone executable
-        run: npm run package
+      - name: Build
+        run: npm run build
 
-      - name: Generate SHA-256 checksum
-        shell: pwsh
-        run: |
-          $hash = (Get-FileHash build/DataLoom.exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  DataLoom.exe" | Set-Content -Path build/DataLoom.exe.sha256 -Encoding ascii
-          Write-Host "SHA-256: $hash"
-
-      - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: |
-            build/DataLoom.exe
-            build/DataLoom.exe.sha256
-          fail_on_unmatched_files: true
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

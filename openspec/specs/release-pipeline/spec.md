@@ -3,32 +3,18 @@
 ## Purpose
 TBD - created by archiving change self-contained-multi-project. Update Purpose after archive.
 ## Requirements
-### Requirement: CI builds the executable on release
-The repository SHALL include a GitHub Actions workflow that builds the standalone executable on a Windows runner when a release is triggered by a version tag.
+### Requirement: Publish the package to npm on release
+The repository SHALL include a GitHub Actions workflow that, when a release is triggered by a version tag, builds the package and publishes it to the npm registry, so users can install and run it with npm/npx.
 
-#### Scenario: Version tag triggers a build
+#### Scenario: Version tag triggers an npm publish
 - **WHEN** a version tag (e.g. `v1.2.3`) is pushed to the repository
-- **THEN** the workflow runs on a Windows runner and builds the standalone executable
-
-### Requirement: Publish the executable as a downloadable release asset
-The workflow SHALL attach the built executable to a GitHub Release for that version, so users can download it from the repository's Releases page.
-
-#### Scenario: Executable available on the Release
-- **WHEN** the release workflow completes for a version tag
-- **THEN** the built executable is available as a downloadable asset on the corresponding GitHub Release
+- **THEN** the workflow builds the package and publishes it to the npm registry under that version
 
 #### Scenario: Build failure publishes nothing
 - **WHEN** the build step fails
-- **THEN** no release asset is published for that run
+- **THEN** the workflow does not publish anything to npm for that run
 
-### Requirement: Publish a checksum alongside the executable
-On a release build, the workflow SHALL compute a SHA-256 checksum of the built executable and publish that checksum as a release asset alongside the executable, so a user can verify the integrity of their download against a value recorded in the release.
-
-#### Scenario: Checksum published with the executable
-- **WHEN** the release workflow completes for a version tag
-- **THEN** a SHA-256 checksum file for the executable is available as a downloadable asset on the corresponding GitHub Release, next to the executable
-
-#### Scenario: Checksum matches the published executable
-- **WHEN** a user computes the SHA-256 of the downloaded executable
-- **THEN** it equals the value in the published checksum asset for that release
+#### Scenario: Installable and runnable from npm
+- **WHEN** a user runs `npx data-loom` (or installs it globally and runs `data-loom`) after a successful publish
+- **THEN** the dashboard starts, without the user downloading any standalone executable
 

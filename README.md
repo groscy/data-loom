@@ -15,35 +15,28 @@ DataLoom reads your workspace through the **OpenSpec CLI**, which is **not bundl
 npm install -g openspec
 ```
 
-(The executable invokes your installed `openspec`; if it's missing, it exits with this guidance instead of showing a blank dashboard.)
+(data-loom invokes your installed `openspec`; if it's missing, it exits with this guidance instead of showing a blank dashboard.)
 
-## Get it (recommended): download the executable
+## Get it (recommended): install from npm
 
-1. Download the latest `DataLoom.exe` from the repository's [**Releases**](../../releases) page. It's a standalone executable — no Node install, no build.
-2. Run it, pointing at a project (any directory containing an `openspec/` workspace):
+Requires [Node.js](https://nodejs.org) ≥ 20.
 
-   ```
-   DataLoom.exe "C:\path\to\your\project"
-   ```
+Run it directly with `npx` (no install), pointing at a project (any directory containing an `openspec/` workspace):
 
-   With no argument it uses the current directory. Then open <http://127.0.0.1:4317>.
-
-> Releases are built automatically by CI on version tags (`vX.Y.Z`) via GitHub Actions and published as a downloadable asset.
-
-## Verifying your download (and the SmartScreen warning)
-
-`DataLoom.exe` is an **unsigned** open-source build, so Windows SmartScreen shows *“Windows protected your PC.”* That is expected for an unrecognized publisher — to run it anyway, click **More info → Run anyway**. (Code signing is the real fix and is planned; until the build is signed, the warning will keep appearing.)
-
-To confirm your download was not tampered with, verify it against the published `DataLoom.exe.sha256` (on the same [Releases](../../releases) page). In PowerShell, from the folder holding both files:
-
-```powershell
-(Get-FileHash .\DataLoom.exe -Algorithm SHA256).Hash -eq (Get-Content .\DataLoom.exe.sha256).Split(' ')[0]
-# True  →  the download matches the published checksum
+```
+npx data-loom "C:\path\to\your\project"
 ```
 
-A checksum proves **integrity** (the bytes are exactly what CI built), not publisher trust — only code signing removes the SmartScreen prompt.
+Or install it globally and run the `data-loom` command:
 
-> **Maintainers:** if Microsoft Defender flags a release as a false positive, submit the executable at <https://www.microsoft.com/wdsi/filesubmission> to get it cleared.
+```
+npm install -g data-loom
+data-loom "C:\path\to\your\project"
+```
+
+With no argument it uses the current directory. Then open <http://127.0.0.1:4317>.
+
+> Published to npm automatically by CI on version tags (`vX.Y.Z`) via GitHub Actions.
 
 ## Run from source (development)
 
@@ -55,7 +48,7 @@ npm start            # serves the current directory's project
 # or: npm start -- "C:\path\to\project"
 ```
 
-Build the executable yourself with `npm run package` → `build/DataLoom.exe`. (The npm package id stays `data-loom`, lowercase per npm rules; the product and the executable are branded **DataLoom**.)
+(The npm package id is `data-loom`, lowercase per npm rules; the product is branded **DataLoom**.)
 
 ## Using the dashboard
 
@@ -70,7 +63,7 @@ DataLoom can also run as an **MCP server**, so your own Claude session determine
 1. Register it in Claude Code (stdio server):
 
    ```
-   claude mcp add data-loom -- DataLoom.exe mcp "C:\path\to\your\project"
+   claude mcp add data-loom -- npx data-loom mcp "C:\path\to\your\project"
    ```
 
    (From source: `node dist/index.js mcp "C:\path\to\project"`.)
@@ -90,7 +83,7 @@ DataLoom can also run as an **MCP server**, so your own Claude session determine
 - **Derived, not stored** — phase/order is a pure function of the OpenSpec files, recomputed on every change. Nothing about ordering is persisted.
 - **Mechanical dependencies** — an edge is "change B modifies a capability that change A introduces"; no NLP, no guessing.
 - **Mirror, never launcher** — MCP liveness is observed passively (connect to listening URLs; scan the process table for stdio servers). The dashboard never spawns anything.
-- **openspec stays external** — the executable bundles the runtime and the app, but not openspec.
+- **openspec stays external** — data-loom ships the app, but not openspec; it invokes your installed `openspec` CLI.
 
 ## Built with itself
 
