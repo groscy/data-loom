@@ -5,23 +5,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DataLoom</title>
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <header class="topbar">
-      <div class="brand"><img class="brand-logo" src="/icon.svg" alt="" width="22" height="22" />DataLoom</div>
+      <div class="brand">
+        <svg class="brand-mark" width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="22" height="22" rx="6.5" fill="var(--panel2)" stroke="var(--border2)" stroke-width="1.1" />
+          <g stroke="var(--faint)" stroke-width="1.7" stroke-linecap="round">
+            <path d="M5 8H19" /><path d="M5 12H19" /><path d="M5 16H19" />
+          </g>
+          <g stroke="var(--accent)" stroke-width="1.7" stroke-linecap="round">
+            <path d="M8 5V19" /><path d="M12 5V19" /><path d="M16 5V19" />
+          </g>
+          <circle cx="8" cy="8" r="1.5" fill="var(--text)" /><circle cx="16" cy="16" r="1.5" fill="var(--text)" />
+        </svg>
+        <span class="wordmark">Data<span class="wordmark-accent">Loom</span></span>
+      </div>
+
       <nav class="tabs">
         <button class="tab active" data-tab="roadmap">Roadmap</button>
         <button class="tab" data-tab="topology">MCP Topology</button>
       </nav>
-      <div class="project">
-        <label class="project-label" for="project-select">project</label>
-        <select id="project-select" title="Select which project to display"></select>
-      </div>
-      <div class="conn">
-        <span id="conn-dot" class="dot"></span>
-        <span id="conn-text">connecting…</span>
-        <span id="gen" class="gen"></span>
+
+      <div class="topbar-right">
+        <button id="theme-toggle" class="theme-toggle" type="button" title="Switch theme">
+          <span class="theme-icon">☾</span><span class="theme-label">dark</span>
+        </button>
+        <div class="project">
+          <label class="project-label" for="project-select">project</label>
+          <div class="project-pill">
+            <select id="project-select" title="Select which project to display"></select>
+            <span class="project-caret">▾</span>
+          </div>
+        </div>
+        <div class="conn">
+          <span id="conn-dot" class="dot"></span>
+          <span id="conn-text">connecting…</span>
+          <span id="gen" class="gen"></span>
+        </div>
       </div>
     </header>
 
@@ -30,27 +58,32 @@
         <div id="conflicts" class="conflicts hidden"></div>
         <div id="review" class="review hidden"></div>
         <div class="board-wrap">
-          <svg id="edges" class="edges" aria-hidden="true"></svg>
-          <div id="board" class="board"></div>
+          <div id="board" class="board">
+            <svg id="edges" class="edges" viewBox="0 0 1180 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+          </div>
         </div>
         <section id="doneband" class="doneband hidden"></section>
       </section>
 
       <section id="topology" class="view">
-        <div class="topo-legend">
-          <span><i class="swatch solid"></i> global</span>
-          <span><i class="swatch dashed"></i> project</span>
-          <span class="topo-hint">click a server to passively check it — data_loom never starts anything</span>
+        <div class="topo-controls">
+          <div class="scope-row">
+            <span class="scope-tag">scope</span>
+            <button class="scope-chip active" data-scope="all">all</button>
+            <button class="scope-chip" data-scope="global">global</button>
+            <button class="scope-chip" data-scope="project">project</button>
+          </div>
+          <div class="pcb-caption">solid trace = global · dashed = project · flow = reachable</div>
         </div>
         <div id="topo-wrap" class="topo-wrap">
-          <svg id="spokes" class="edges" aria-hidden="true"></svg>
-          <div id="topo-nodes"></div>
+          <div id="topo-nodes" class="pcb">
+            <svg id="spokes" class="edges" viewBox="0 0 1200 640" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+          </div>
         </div>
       </section>
     </main>
 
     <aside id="detail" class="detail hidden">
-      <button id="detail-close" class="detail-close" aria-label="Close">&times;</button>
       <div id="detail-body"></div>
     </aside>
 
