@@ -13,11 +13,15 @@ import { discover } from "./mcp/discovery.js";
 import { checkServer } from "./mcp/availability.js";
 import { discoverProjects, isViewableProject, type ProjectModel } from "./projects.js";
 import { resolvePublicDir } from "./assets.js";
+import { HOST, PORT } from "./paths.js";
+import * as lifecycle from "./lifecycle.js";
+import * as autostart from "./autostart.js";
+import * as claudeDesktop from "./claudeDesktop.js";
 import type { RoadmapModel } from "./types.js";
 import type { McpModel, McpServer, ProbeTarget } from "./mcp/types.js";
 
-const host = "127.0.0.1";
-const port = Number(process.env.PORT ?? 4317);
+const host = HOST;
+const port = PORT;
 
 // Initial project: CLI argument, then DATA_LOOM_ROOT, then cwd.
 const initialProject = resolve(process.argv[2] ?? process.env.DATA_LOOM_ROOT ?? process.cwd());
@@ -146,7 +150,9 @@ function getProjects(): Promise<ProjectModel> {
 }
 
 function openBrowser(url: string): void {
-  if (process.env.DATA_LOOM_NO_OPEN) return;
+  // Detached background runs have no attached console and no user waiting at the
+  // terminal, so never pop a browser for them (nor when explicitly suppressed).
+  if (process.env.DATA_LOOM_NO_OPEN || process.env.DATA_LOOM_DETACHED) return;
   try {
     if (process.platform === "win32") {
       spawn("cmd", ["/c", "start", "", url], { stdio: "ignore", detached: true }).unref();
@@ -160,7 +166,88 @@ function openBrowser(url: string): void {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// ---- CLI verb dispatch -----------------------------------------------------
+// A leading reserved verb selects a lifecycle/autostart/integration command;
+// anything else falls through to the foreground daemon (with argv[2] as the
+// optional project path), preserving the original invocation unchanged.
+
+const VERBS = new Set(["start", "stop", "restart", "status", "autostart", "connect", "disconnect"]);
+
+async function runAutostart(rest: string[]): Promise<void> {
+  const sub = rest[0];
+  if (sub === "enable") {
+    await autostart.enable();
+    console.log("[data-loom] autostart enabled (launches on login)");
+    // Enabling also brings the daemon up now, so it's running this session too —
+    // opt out with --no-start.
+    if (!rest.includes("--no-start")) await lifecycle.start();
+    return;
+  }
+  if (sub === "disable") {
+    await autostart.disable();
+    console.log("[data-loom] autostart disabled");
+    return;
+  }
+  if (sub === "status") {
+    console.log(
+      (await autostart.isEnabled())
+        ? "[data-loom] autostart is enabled"
+        : "[data-loom] autostart is not enabled",
+    );
+    return;
+  }
+  throw new Error("usage: data-loom autostart <enable|disable|status> [--no-start]");
+}
+
+async function runConnect(rest: string[]): Promise<void> {
+  if (rest[0] !== "claude-desktop") throw new Error("usage: data-loom connect claude-desktop [--bridge]");
+  const bridge = rest.includes("--bridge");
+  const path = await claudeDesktop.connect({ bridge });
+  console.log(`[data-loom] registered DataLoom in Claude Desktop (${bridge ? "stdio bridge" : "native HTTP"}) — ${path}`);
+  console.log("[data-loom] restart Claude Desktop to pick it up; DataLoom must be running to serve the tools.");
+}
+
+async function runDisconnect(rest: string[]): Promise<void> {
+  if (rest[0] !== "claude-desktop") throw new Error("usage: data-loom disconnect claude-desktop");
+  const { path, removed } = await claudeDesktop.disconnect();
+  console.log(
+    removed
+      ? `[data-loom] removed DataLoom from Claude Desktop — ${path}`
+      : "[data-loom] DataLoom was not registered in Claude Desktop — nothing to remove",
+  );
+}
+
+async function runCli(argv: string[]): Promise<void> {
+  const [verb, ...rest] = argv;
+  switch (verb) {
+    case "start":
+      return lifecycle.start(rest[0]);
+    case "stop":
+      return lifecycle.stop();
+    case "restart":
+      return lifecycle.restart(rest[0]);
+    case "status":
+      return lifecycle.status();
+    case "autostart":
+      return runAutostart(rest);
+    case "connect":
+      return runConnect(rest);
+    case "disconnect":
+      return runDisconnect(rest);
+    default:
+      throw new Error(`unknown command: ${verb}`);
+  }
+}
+
+const cliArgs = process.argv.slice(2);
+if (cliArgs[0] && VERBS.has(cliArgs[0])) {
+  runCli(cliArgs).catch((err) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+} else {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -38,6 +38,31 @@ With no argument it uses the current directory. Then open <http://127.0.0.1:4317
 
 > Published to npm automatically by CI on version tags (`vX.Y.Z`) via GitHub Actions.
 
+## Run it always-on (background + autostart)
+
+The command above runs in the foreground and stops when you close the terminal. Since the daemon also hosts the MCP endpoint, you usually want it always running. Manage a detached background daemon with:
+
+```
+data-loom start [C:\path\to\project]   # launch detached; returns immediately
+data-loom status                       # is it running? where are the logs?
+data-loom stop                         # stop the background daemon
+data-loom restart [path]               # stop then start
+```
+
+There is at most one instance: `start` while one is already running is a no-op that just reports it. Background output goes to a log file (path shown by `status`) since there's no attached console — on Windows, `%LOCALAPPDATA%\data-loom\daemon.log` (macOS `~/Library/Application Support/data-loom/`, Linux `${XDG_STATE_HOME:-~/.local/state}/data-loom/`).
+
+To have it launch automatically when you log in:
+
+```
+data-loom autostart enable    # register a per-user login item AND start it now
+data-loom autostart status    # is autostart registered?
+data-loom autostart disable   # remove the login item (does not stop a running daemon)
+```
+
+`enable` also starts the daemon immediately; pass `--no-start` to only register for next login. The login item is per-user and needs no admin rights — a Startup-folder shortcut on Windows, a LaunchAgent on macOS, an XDG autostart entry on Linux.
+
+Everything is reversible: `data-loom stop`, `data-loom autostart disable`, and `data-loom disconnect claude-desktop` (below) undo each side effect, and each is idempotent.
+
 ## Run from source (development)
 
 Requires Node.js ≥ 20.
@@ -66,7 +91,15 @@ The running daemon also **hosts an MCP server** over HTTP, so your own Claude se
    claude mcp add --transport http --scope user data-loom http://127.0.0.1:4317/mcp
    ```
 
-   The MCP server lives in the daemon, so **DataLoom must be running** for the tools to be reachable (start it with `npx @lyric_dev/data-loom "C:\path\to\your\project"`). It binds to loopback only.
+   The MCP server lives in the daemon, so **DataLoom must be running** for the tools to be reachable (start it with `data-loom start` or `npx @lyric_dev/data-loom "C:\path\to\your\project"`). It binds to loopback only.
+
+   **Claude Desktop** reaches the same daemon — register it with:
+
+   ```
+   data-loom connect claude-desktop
+   ```
+
+   This adds a `data-loom` entry to Claude Desktop's `claude_desktop_config.json` (additively — your other servers are untouched), pointing at the same loopback endpoint via Claude Desktop's native remote-MCP support. Restart Claude Desktop to pick it up. On older Claude Desktop versions without native remote support, pass `--bridge` to register a stdio↔HTTP bridge (`npx mcp-remote`) instead. Remove it any time with `data-loom disconnect claude-desktop`. As with Claude Code, the daemon must be running for the tools to appear.
 
 2. In any project, ask Claude something like *"review DataLoom's open proposals and set the dependencies."* On connect, the server asks Claude to surface any proposal that hasn't been reviewed for dependencies yet, propose the edges, and **confirm with you before writing**. It exposes these tools:
    - `list_projects` — the selectable OpenSpec workspaces plus the current selection (read-only), to discover/confirm a `project` path.
