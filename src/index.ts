@@ -17,6 +17,7 @@ import { HOST, PORT } from "./paths.js";
 import * as lifecycle from "./lifecycle.js";
 import * as autostart from "./autostart.js";
 import * as claudeDesktop from "./claudeDesktop.js";
+import { initTray, type Tray } from "./tray.js";
 import type { RoadmapModel } from "./types.js";
 import type { McpModel, McpServer, ProbeTarget } from "./mcp/types.js";
 
@@ -64,29 +65,55 @@ async function main(): Promise<void> {
     console.log("[data-loom] no openspec project found at launch — open the dashboard and pick one");
   }
 
-  server = await startServer({
-    publicDir: resolvePublicDir(),
-    host,
-    port,
-    getRoadmap: () => session?.model ?? null,
-    getMcp,
-    checkMcp,
-    getProjects,
-    selectProject,
-    getCurrentProject: () => session?.project ?? null,
-  });
+  try {
+    server = await startServer({
+      publicDir: resolvePublicDir(),
+      host,
+      port,
+      getRoadmap: () => session?.model ?? null,
+      getMcp,
+      checkMcp,
+      getProjects,
+      selectProject,
+      getCurrentProject: () => session?.project ?? null,
+    });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      // A DataLoom daemon is already on this port (e.g. the background one).
+      // That's fine — point at the running instance instead of crashing.
+      console.log(`[data-loom] already running at http://${host}:${port} — using that instance.`);
+      openBrowser(`http://${host}:${port}`);
+      session?.stopWatch(); // release the watcher started for this aborted launch
+      return;
+    }
+    throw err;
+  }
 
-  console.log(`[data-loom] dashboard ready at http://${host}:${server.port}`);
+  const url = `http://${host}:${server.port}`;
+  console.log(`[data-loom] dashboard ready at ${url}`);
   if (session) console.log(`[data-loom] project: ${session.project}`);
-  openBrowser(`http://${host}:${server.port}`);
+  openBrowser(url);
+
+  // Tray icon: an ambient "DataLoom is running" indicator (essential in the
+  // detached mode, which has no console). Guarded no-op where unavailable.
+  let tray: Tray = { dispose: () => {} };
 
   const shutdown = (): void => {
+    tray.dispose();
     session?.stopWatch();
     server?.close();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  tray = initTray({
+    url,
+    onOpen: () => launchBrowser(url),
+    onCopy: () => copyToClipboard(url),
+    onStop: shutdown,
+    log: (msg) => console.error(msg),
+  });
 }
 
 async function buildSession(project: string): Promise<Session> {
@@ -153,6 +180,11 @@ function openBrowser(url: string): void {
   // Detached background runs have no attached console and no user waiting at the
   // terminal, so never pop a browser for them (nor when explicitly suppressed).
   if (process.env.DATA_LOOM_NO_OPEN || process.env.DATA_LOOM_DETACHED) return;
+  launchBrowser(url);
+}
+
+/** Open a URL in the default browser unconditionally (used by the tray). */
+function launchBrowser(url: string): void {
   try {
     if (process.platform === "win32") {
       spawn("cmd", ["/c", "start", "", url], { stdio: "ignore", detached: true }).unref();
@@ -163,6 +195,22 @@ function openBrowser(url: string): void {
     }
   } catch {
     /* non-fatal — the URL is already logged */
+  }
+}
+
+/** Best-effort copy of text to the system clipboard; failure is silent. */
+function copyToClipboard(text: string): void {
+  try {
+    const proc =
+      process.platform === "win32"
+        ? spawn("clip")
+        : process.platform === "darwin"
+          ? spawn("pbcopy")
+          : spawn("xclip", ["-selection", "clipboard"]);
+    proc.on("error", () => {});
+    proc.stdin?.end(text);
+  } catch {
+    /* no clipboard tool available — non-fatal */
   }
 }
 

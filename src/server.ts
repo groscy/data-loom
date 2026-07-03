@@ -205,6 +205,16 @@ export async function startServer(opts: {
     server: http,
     verifyClient: (info: { req: IncomingMessage }) => isAllowed(info.req),
   });
+  // ws re-emits the underlying server's 'error'; without a listener a bind
+  // failure (EADDRINUSE) becomes an unhandled 'error' event that crashes the
+  // process. The listen() promise below surfaces startup bind errors to the
+  // caller, so ignore those here (avoids a scary duplicate stack on the normal
+  // "already running" path); log only unexpected post-startup socket errors.
+  wss.on("error", (err) => {
+    if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") {
+      console.error("[data-loom] websocket error:", err);
+    }
+  });
   wss.on("connection", async (ws) => {
     const roadmap = getRoadmap();
     if (roadmap) ws.send(JSON.stringify({ type: "model", model: roadmap }));
@@ -216,7 +226,18 @@ export async function startServer(opts: {
     }
   });
 
-  await new Promise<void>((ready) => http.listen(port, host, ready));
+  // Reject (rather than crash) if the port is taken — the caller decides how to
+  // report an already-running instance. After a clean listen, later server
+  // errors are logged, not fatal.
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: Error): void => reject(err);
+    http.once("error", onError);
+    http.listen(port, host, () => {
+      http.removeListener("error", onError);
+      http.on("error", (err) => console.error("[data-loom] http server error:", err));
+      resolve();
+    });
+  });
   const actualPort = (http.address() as AddressInfo | null)?.port ?? port;
   setAllowed(actualPort);
 
