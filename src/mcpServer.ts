@@ -8,9 +8,11 @@
 // explicit `project` argument, falling back to the daemon's current dashboard
 // selection. The server holds no single project frozen for its lifetime.
 
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { OpenSpecClient } from "./openspecClient.js";
@@ -31,6 +33,21 @@ export interface McpDeps {
  * and reported generically, so host filesystem detail never leaks.
  */
 class ToolError extends Error {}
+
+// The advertised server version — read from the package manifest shipped next
+// to the compiled code, so it can never drift from the released version again
+// (it was hardcoded and stuck at 0.4.1 through the 0.5.0 release).
+const VERSION = ((): string => {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const manifest = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8")) as {
+      version?: string;
+    };
+    return manifest.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 // Advertised to the client on connect. The "confirm before writing" gate lives
 // here, in the agent's behavior — the server cannot verify a human approved.
@@ -89,7 +106,7 @@ const PROJECT_ARG = {
  */
 export function createMcpServer(deps: McpDeps): Server {
   const server = new Server(
-    { name: "data-loom", version: "0.4.1" },
+    { name: "data-loom", version: VERSION },
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
 
