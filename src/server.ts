@@ -142,6 +142,15 @@ export async function startServer(opts: {
         if (!res.headersSent) sendError(res, 413, "request body too large");
         return;
       }
+      if (e instanceof InvalidJsonError) {
+        // A body that never parsed is the caller's encoding fault — answer with
+        // a JSON-RPC parse error, not a 500. The classic trigger is a Windows
+        // path with unescaped backslashes ("D:\projects\…" — \p is not a valid
+        // JSON escape), so name that in the hint. The detail only ever echoes
+        // the parser's complaint about the caller's own body, never host state.
+        if (!res.headersSent) sendRpcParseError(res, e.message);
+        return;
+      }
       // Unexpected failures stay in the server log; the client gets nothing
       // about the host (no paths, no stack).
       console.error("[data-loom] mcp request error:", e);
@@ -232,8 +241,31 @@ function sendError(res: ServerResponse, code: number, message: string): void {
   res.end(JSON.stringify({ error: message }));
 }
 
+/**
+ * Answer a request whose body was not valid JSON with a JSON-RPC parse error
+ * (-32700) over HTTP 400, per the Streamable-HTTP spec. `detail` is the JSON
+ * parser's message about the caller's own payload — safe to echo, and the hint
+ * names the most common cause on Windows (unescaped path backslashes).
+ */
+function sendRpcParseError(res: ServerResponse, detail: string): void {
+  res.writeHead(400, { "content-type": MIME[".json"] });
+  res.end(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      error: {
+        code: -32700,
+        message: `Parse error: request body is not valid JSON (${detail}). If the payload contains Windows paths, JSON-escape the backslashes ("D:\\\\projects\\\\…") or use forward slashes.`,
+      },
+      id: null,
+    }),
+  );
+}
+
 /** Raised when a request body exceeds the cap; mapped to HTTP 413. */
 class PayloadTooLargeError extends Error {}
+
+/** Raised when a request body is not parseable JSON; mapped to HTTP 400 / -32700. */
+class InvalidJsonError extends Error {}
 
 /** Largest request body we will buffer (JSON-RPC tool calls are tiny). */
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -261,7 +293,7 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
       try {
         resolve(JSON.parse(data));
       } catch (e) {
-        reject(e instanceof Error ? e : new Error("invalid JSON body"));
+        reject(new InvalidJsonError(e instanceof Error ? e.message : "invalid JSON body"));
       }
     });
     req.on("error", reject);
