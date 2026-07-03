@@ -59,9 +59,9 @@ data-loom autostart status    # is autostart registered?
 data-loom autostart disable   # remove the login item (does not stop a running daemon)
 ```
 
-`enable` also starts the daemon immediately; pass `--no-start` to only register for next login. The login item is per-user and needs no admin rights — a Startup-folder shortcut on Windows, a LaunchAgent on macOS, an XDG autostart entry on Linux.
+`enable` also starts the daemon immediately **and registers DataLoom with Claude Code** (the same as `data-loom connect claude-code`), so the always-on path both hosts the MCP endpoint and points Claude Code at it in one command. Pass `--no-start` to only register for next login, or `--no-connect` to skip the Claude Code registration. The Claude Code step is best-effort — if the `claude` CLI isn't found, `enable` warns and still sets up the login item and daemon. The login item is per-user and needs no admin rights — a Startup-folder shortcut on Windows, a LaunchAgent on macOS, an XDG autostart entry on Linux.
 
-Everything is reversible: `data-loom stop`, `data-loom autostart disable`, and `data-loom disconnect claude-desktop` (below) undo each side effect, and each is idempotent.
+Everything is reversible: `data-loom stop`, `data-loom autostart disable`, `data-loom disconnect claude-code`, and `data-loom disconnect claude-desktop` (below) undo each side effect, and each is idempotent.
 
 ## Run from source (development)
 
@@ -85,11 +85,19 @@ npm start            # serves the current directory's project
 
 The running daemon also **hosts an MCP server** over HTTP, so your own Claude session determines and applies the order of interdependent proposals — DataLoom holds no API key and the reasoning runs under your authenticated Claude. One registration serves **every** project; the target project is resolved per call (an explicit `project` argument, falling back to whatever the dashboard has selected).
 
-1. Register it once, globally — no per-project setup:
+1. Register it once, globally — no per-project setup. The easy way:
+
+   ```
+   data-loom connect claude-code
+   ```
+
+   This registers DataLoom's loopback endpoint with Claude Code at user scope via Claude Code's own CLI (it runs `claude mcp add` for you; DataLoom never edits `~/.claude.json` itself). Start a new Claude Code session to pick it up, and remove it any time with `data-loom disconnect claude-code`. If the `claude` CLI isn't on your PATH, the command prints the manual line to run instead:
 
    ```
    claude mcp add --transport http --scope user data-loom http://127.0.0.1:4317/mcp
    ```
+
+   Either way, if you enable always-on autostart (below), `data-loom autostart enable` already runs this registration for you — so a fresh install can be one command.
 
    The MCP server lives in the daemon, so **DataLoom must be running** for the tools to be reachable (start it with `data-loom start` or `npx @lyric_dev/data-loom "C:\path\to\your\project"`). It binds to loopback only.
 

@@ -17,6 +17,7 @@ import { HOST, PORT } from "./paths.js";
 import * as lifecycle from "./lifecycle.js";
 import * as autostart from "./autostart.js";
 import * as claudeDesktop from "./claudeDesktop.js";
+import * as claudeCode from "./claudeCode.js";
 import { initTray, type Tray } from "./tray.js";
 import type { RoadmapModel } from "./types.js";
 import type { McpModel, McpServer, ProbeTarget } from "./mcp/types.js";
@@ -229,6 +230,19 @@ async function runAutostart(rest: string[]): Promise<void> {
     // Enabling also brings the daemon up now, so it's running this session too —
     // opt out with --no-start.
     if (!rest.includes("--no-start")) await lifecycle.start();
+    // ...and points Claude Code at it, so the always-on path both hosts and
+    // registers the MCP endpoint. Best-effort: a missing `claude` CLI must not
+    // fail the enable (the login item + daemon already succeeded). Opt out with
+    // --no-connect.
+    if (!rest.includes("--no-connect")) {
+      try {
+        await claudeCode.connect();
+      } catch (err) {
+        console.warn(
+          `[data-loom] could not register with Claude Code (continuing): ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
     return;
   }
   if (sub === "disable") {
@@ -244,25 +258,52 @@ async function runAutostart(rest: string[]): Promise<void> {
     );
     return;
   }
-  throw new Error("usage: data-loom autostart <enable|disable|status> [--no-start]");
+  throw new Error("usage: data-loom autostart <enable|disable|status> [--no-start] [--no-connect]");
 }
 
 async function runConnect(rest: string[]): Promise<void> {
-  if (rest[0] !== "claude-desktop") throw new Error("usage: data-loom connect claude-desktop [--bridge]");
-  const bridge = rest.includes("--bridge");
-  const path = await claudeDesktop.connect({ bridge });
-  console.log(`[data-loom] registered DataLoom in Claude Desktop (${bridge ? "stdio bridge" : "native HTTP"}) — ${path}`);
-  console.log("[data-loom] restart Claude Desktop to pick it up; DataLoom must be running to serve the tools.");
+  const target = rest[0];
+  if (target === "claude-code") {
+    const registered = await claudeCode.connect();
+    if (registered) {
+      console.log("[data-loom] registered DataLoom in Claude Code (user scope, native HTTP)");
+      console.log(
+        "[data-loom] start a new Claude Code session (or /mcp reconnect) to pick it up; DataLoom must be running to serve the tools.",
+      );
+    }
+    return;
+  }
+  if (target === "claude-desktop") {
+    const bridge = rest.includes("--bridge");
+    const path = await claudeDesktop.connect({ bridge });
+    console.log(`[data-loom] registered DataLoom in Claude Desktop (${bridge ? "stdio bridge" : "native HTTP"}) — ${path}`);
+    console.log("[data-loom] restart Claude Desktop to pick it up; DataLoom must be running to serve the tools.");
+    return;
+  }
+  throw new Error("usage: data-loom connect <claude-code|claude-desktop [--bridge]>");
 }
 
 async function runDisconnect(rest: string[]): Promise<void> {
-  if (rest[0] !== "claude-desktop") throw new Error("usage: data-loom disconnect claude-desktop");
-  const { path, removed } = await claudeDesktop.disconnect();
-  console.log(
-    removed
-      ? `[data-loom] removed DataLoom from Claude Desktop — ${path}`
-      : "[data-loom] DataLoom was not registered in Claude Desktop — nothing to remove",
-  );
+  const target = rest[0];
+  if (target === "claude-code") {
+    const { removed } = await claudeCode.disconnect();
+    console.log(
+      removed
+        ? "[data-loom] removed DataLoom from Claude Code"
+        : "[data-loom] DataLoom was not registered in Claude Code — nothing to remove",
+    );
+    return;
+  }
+  if (target === "claude-desktop") {
+    const { path, removed } = await claudeDesktop.disconnect();
+    console.log(
+      removed
+        ? `[data-loom] removed DataLoom from Claude Desktop — ${path}`
+        : "[data-loom] DataLoom was not registered in Claude Desktop — nothing to remove",
+    );
+    return;
+  }
+  throw new Error("usage: data-loom disconnect <claude-code|claude-desktop>");
 }
 
 async function runCli(argv: string[]): Promise<void> {
