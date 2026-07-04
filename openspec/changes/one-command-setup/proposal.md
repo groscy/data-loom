@@ -24,3 +24,6 @@ Reaching a fully working always-on DataLoom today takes a README read and severa
 - **Code**: `src/index.ts` (new verb in CLI dispatch, prerequisite pre-check reusing `OpenSpecClient.checkAvailable`), summary output composing `autostart`/`lifecycle`/`claudeCode` results.
 - **Docs**: README restructured so `up` is the recommended path; existing granular commands remain documented for control.
 - **No new dependencies**; no daemon/runtime changes.
+
+## Depends On
+- harden-always-on
