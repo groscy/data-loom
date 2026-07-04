@@ -29,3 +29,5 @@ The DataLoom daemon now runs detached in the background (no attached console, no
 - **Icon asset**: a tray-sized icon derived from the existing `public/icon.svg` woven-lattice mark (e.g. a `.ico`/`.png` under `public/` or `build/`).
 - **Platform**: Windows-first (the stated target host); other platforms and headless environments fall back to no tray.
 - No change to the daemon contract, the websocket/model, or the MCP topology.
+
+## Depends On

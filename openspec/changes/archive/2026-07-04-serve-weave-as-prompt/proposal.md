@@ -27,3 +27,6 @@ The `/loom:weave` workflow reaches users through an agent-mediated chain — the
 - **Users**: existing installed `weave.md` copies are healed automatically on the first daemon start after upgrade.
 - **Docs**: README's weave section simplifies — registration and the command arrive together via `connect claude-code`.
 - No new dependencies; no change to the tools, the confirm gate, or the no-secrets guarantee.
+
+## Depends On
+- add-connect-claude-code
