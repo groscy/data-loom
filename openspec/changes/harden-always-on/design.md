@@ -32,9 +32,14 @@ Restart-on-failure only works if the supervised process *is* the daemon. Today's
 - **macOS**: keep the LaunchAgent, add `KeepAlive: {SuccessfulExit: false}`. launchd then restarts on crash only; `SIGTERM`-clean exit (code 0) stays stopped. This is a three-line plist change.
 - **Linux**: a systemd **user** unit (`~/.config/systemd/user/data-loom.service`, `Restart=on-failure`, `WantedBy=default.target`), enabled with `systemctl --user enable --now`. When `systemctl --user` is unavailable (no systemd, no user session bus), fall back to the current XDG autostart entry and report that supervision is not available on this host.
 
-### 3. Clean stop must exit 0
+### 3. Clean stop must exit 0 — via a loopback shutdown endpoint
 
-All three mechanisms distinguish crash from intent by exit code. The daemon's shutdown path (SIGTERM/SIGINT handler, tray Stop) already calls `process.exit(0)` — this becomes a spec-level guarantee: `data-loom stop` results in a supervisor-visible *successful* exit, so nothing restarts it. On Linux, `stop` additionally uses `systemctl --user stop` when the supervised unit is active, so systemd never sees the termination as a failure.
+All three mechanisms distinguish crash from intent by exit code, so `data-loom stop` must make the daemon exit 0. The daemon's in-process shutdown path (SIGINT/SIGTERM handler, tray Stop) calls `process.exit(0)` — but on **Windows that handler is never reached by a cross-process stop**: `process.kill(pid, "SIGTERM")` maps to `TerminateProcess`, which force-kills the daemon with **exit 1** and runs no handler (verified empirically during apply). A supervising Scheduled Task with restart-on-failure cannot tell that exit 1 from a crash, so it would restart the daemon after every deliberate stop — violating "clean stop stays stopped".
+
+The fix: the daemon exposes a **loopback-only `POST /api/shutdown`** on its existing HTTP server (behind the same Host/Origin DNS-rebind + CSRF guard as every other route). `stop()` calls it first; the daemon then exits 0 through its own `shutdown()` path on every OS. `stop()` falls back to `process.kill(pid, "SIGTERM")` when the endpoint doesn't answer (an older daemon without the route, or a wedged one). On Linux, `stop` still prefers `systemctl --user stop` when the supervised unit is active, so systemd's own bookkeeping stays consistent; the endpoint covers the non-systemd and Windows paths. The tray's in-process Stop was always fine (it reaches the handler directly).
+
+- *Alternative — a Windows console CTRL event instead of the endpoint:* rejected; a detached daemon shares no console, and Node maps a console close to `SIGHUP`, not `SIGTERM`, so it's unreliable.
+- *Security note:* the new route can terminate the daemon, but it is loopback-bound and rejected for any non-loopback `Host` or present non-loopback `Origin` (same guard as the MCP endpoint), so a hostile web page cannot reach it. Verified with spoofed-Host and cross-Origin POSTs (both 403) during apply.
 
 ### 4. Stable launch target via a state-dir launcher
 

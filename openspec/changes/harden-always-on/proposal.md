@@ -31,3 +31,6 @@ The always-on story currently ends at login: the daemon is spawned detached and 
 - **Behavior**: `autostart enable/disable/status` keep their exact CLI surface; only the underlying mechanism changes. `stop` semantics are preserved (a stopped daemon stays stopped).
 - **Docs**: README "Run it always-on" section gains the update verb and the supervision guarantee.
 - **No new npm dependencies** — Scheduled Task and LaunchAgent management use the same spawn-PowerShell / write-plist approach as today.
+
+## Depends On
+- add-connect-claude-code
