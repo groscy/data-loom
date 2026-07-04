@@ -17,30 +17,34 @@ npm install -g openspec
 
 (data-loom invokes your installed `openspec`; if it's missing, it exits with this guidance instead of showing a blank dashboard.)
 
-## Get it (recommended): install from npm
+## Get started (one command)
 
-Requires [Node.js](https://nodejs.org) ≥ 20.
+Requires [Node.js](https://nodejs.org) ≥ 20. From any project (a directory with an `openspec/` workspace), a single command takes a fresh machine to a fully working, always-on DataLoom:
 
-Run it directly with `npx` (no install), pointing at a project (any directory containing an `openspec/` workspace):
+```
+npx @lyric_dev/data-loom up "C:\path\to\your\project"
+```
+
+`data-loom up` checks the `openspec` prerequisite up front (and stops with the install command if it's missing, before changing anything), registers login autostart, starts the background daemon, and registers DataLoom with Claude Code — then prints a summary: dashboard URL and daemon state, autostart state, Claude Code registration, and a `/loom:weave` pointer. It's safe to re-run — on an already-configured host it reports each part as already in place, so it doubles as a "check my setup" command. Pass `--no-start` (register for next login only) or `--no-connect` (skip the Claude Code registration). Then open <http://127.0.0.1:4317>.
+
+For a durable setup, install globally so autostart points at a stable location instead of an ephemeral npx cache (`up` reminds you of this when run via npx):
+
+```
+npm install -g @lyric_dev/data-loom
+data-loom up "C:\path\to\your\project"
+```
+
+**Just want a quick look?** Run it in the foreground with no setup — it stops when you close the terminal (with no argument it uses the current directory):
 
 ```
 npx @lyric_dev/data-loom "C:\path\to\your\project"
 ```
 
-Or install it globally and run the `data-loom` command:
-
-```
-npm install -g @lyric_dev/data-loom
-data-loom "C:\path\to\your\project"
-```
-
-With no argument it uses the current directory. Then open <http://127.0.0.1:4317>.
-
 > Published to npm automatically by CI on version tags (`vX.Y.Z`) via GitHub Actions.
 
-## Run it always-on (background + autostart)
+## Run it always-on (manual controls)
 
-The command above runs in the foreground and stops when you close the terminal. Since the daemon also hosts the MCP endpoint, you usually want it always running. Manage a detached background daemon with:
+`data-loom up` (above) sets all of this up in one shot; the commands here are the individual controls it composes, for when you want to manage the pieces directly. Since the daemon also hosts the MCP endpoint, you usually want it always running. Manage a detached background daemon with:
 
 ```
 data-loom start [C:\path\to\project]   # launch detached; returns immediately

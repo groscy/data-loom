@@ -253,6 +253,7 @@ function copyToClipboard(text: string): void {
 // optional project path), preserving the original invocation unchanged.
 
 const VERBS = new Set([
+  "up",
   "start",
   "stop",
   "restart",
@@ -372,9 +373,99 @@ async function runDisconnect(rest: string[]): Promise<void> {
   throw new Error("usage: data-loom disconnect <claude-code|claude-desktop>");
 }
 
+/** True iff DataLoom is running from an npx / `npm exec` cache rather than a global install. */
+function isNpxInvocation(): boolean {
+  return /[\\/]_npx[\\/]/.test(process.argv[1] ?? "");
+}
+
+/**
+ * `data-loom up [project]` — the one-command setup. Verifies the openspec
+ * prerequisite up front (fail-fast, so a missing prerequisite leaves the
+ * system untouched), then runs the same sequence as `autostart enable`
+ * (register autostart, start the daemon this session, register Claude Code)
+ * and prints a state summary. Idempotent: a re-run on an already-configured
+ * host reports each aspect as already in place instead of duplicating it.
+ * Honors the `--no-start` and `--no-connect` opt-outs.
+ */
+async function runUp(rest: string[]): Promise<void> {
+  const project = rest.find((a) => !a.startsWith("--"));
+  const noStart = rest.includes("--no-start");
+  const noConnect = rest.includes("--no-connect");
+
+  // Prerequisite FIRST, before any setup step — a missing openspec must leave
+  // the system unchanged (no registration, no start, no connect).
+  try {
+    const version = await new OpenSpecClient(resolve(project ?? process.cwd())).checkAvailable();
+    console.log(`[data-loom] openspec CLI ${version}`);
+  } catch {
+    console.error(
+      "[data-loom] ERROR: the `openspec` CLI was not found — nothing was changed.\n" +
+        "data_loom does not bundle it; install it separately, then re-run `data-loom up`:\n" +
+        "    npm install -g openspec",
+    );
+    process.exit(1);
+  }
+
+  // Snapshot prior state so the summary can report what was already in place.
+  const wasRunning = await lifecycle.isRunning();
+  const priorEnabled = (await autostart.getRegistrationInfo()).enabled;
+
+  // 1. Register autostart (idempotent — overwrites any prior registration).
+  const info = await autostart.enable();
+  console.log(
+    `[data-loom] autostart ${priorEnabled ? "already enabled — refreshed" : "enabled"} (${info.mechanism})` +
+      (info.supervised ? "" : " — no crash supervision on this host"),
+  );
+
+  // 2. Bring the daemon up this session — unless the supervisor already did
+  //    (systemd/launchd), it's already running, or the user opted out.
+  let daemonState: string;
+  if (info.startedNow) {
+    daemonState = "running (launched by the supervisor)";
+  } else if (wasRunning) {
+    daemonState = "already running";
+  } else if (noStart) {
+    daemonState = "not started (--no-start)";
+  } else {
+    await lifecycle.start(project);
+    daemonState = "started";
+  }
+
+  // 3. Point Claude Code at the daemon (best-effort; --no-connect skips it).
+  let connectState: string;
+  if (noConnect) {
+    connectState = "skipped (--no-connect)";
+  } else {
+    try {
+      const { registered } = await claudeCode.connect();
+      connectState = registered
+        ? "registered (user scope, native HTTP)"
+        : "not registered — `claude` CLI not found (run the printed command by hand)";
+    } catch (err) {
+      connectState = `not registered — ${err instanceof Error ? err.message : err}`;
+    }
+  }
+
+  // Summary — doubles as a setup health check when `up` is re-run.
+  const running = await lifecycle.isRunning();
+  console.log("");
+  console.log("[data-loom] setup summary");
+  console.log(`  dashboard:    ${baseUrl()} — ${running ? "running" : "not running"} (${daemonState})`);
+  console.log(`  autostart:    ${info.mechanism}${info.supervised ? " (supervised)" : " (unsupervised)"}`);
+  console.log(`  claude code:  ${connectState}`);
+  console.log("  weave:        run /loom:weave in a Claude Code session to order proposal dependencies");
+  if (isNpxInvocation()) {
+    console.log("");
+    console.log("[data-loom] you launched via npx — for a durable always-on setup, install globally instead:");
+    console.log("    npm install -g @lyric_dev/data-loom");
+  }
+}
+
 async function runCli(argv: string[]): Promise<void> {
   const [verb, ...rest] = argv;
   switch (verb) {
+    case "up":
+      return runUp(rest);
     case "start":
       return lifecycle.start(rest[0]);
     case "stop":
