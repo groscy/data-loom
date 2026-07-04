@@ -51,7 +51,7 @@ data-loom restart [path]               # stop then start
 
 There is at most one instance: `start` while one is already running is a no-op that just reports it. Background output goes to a log file (path shown by `status`) since there's no attached console — on Windows, `%LOCALAPPDATA%\data-loom\daemon.log` (macOS `~/Library/Application Support/data-loom/`, Linux `${XDG_STATE_HOME:-~/.local/state}/data-loom/`).
 
-To have it launch automatically when you log in:
+To have it launch automatically when you log in — and restart itself if it ever crashes:
 
 ```
 data-loom autostart enable    # register a per-user login item AND start it now
@@ -59,7 +59,17 @@ data-loom autostart status    # is autostart registered?
 data-loom autostart disable   # remove the login item (does not stop a running daemon)
 ```
 
-`enable` also starts the daemon immediately **and registers DataLoom with Claude Code** (the same as `data-loom connect claude-code`), so the always-on path both hosts the MCP endpoint and points Claude Code at it in one command. Pass `--no-start` to only register for next login, or `--no-connect` to skip the Claude Code registration. The Claude Code step is best-effort — if the `claude` CLI isn't found, `enable` warns and still sets up the login item and daemon. The login item is per-user and needs no admin rights — a Startup-folder shortcut on Windows, a LaunchAgent on macOS, an XDG autostart entry on Linux.
+`enable` also starts the daemon immediately **and registers DataLoom with Claude Code** (the same as `data-loom connect claude-code`), so the always-on path both hosts the MCP endpoint and points Claude Code at it in one command. Pass `--no-start` to only register for next login, or `--no-connect` to skip the Claude Code registration. The Claude Code step is best-effort — if the `claude` CLI isn't found, `enable` warns and still sets up the login item and daemon.
+
+The login item is per-user and needs no admin rights, and it **supervises** the daemon so a crash restarts it automatically (a deliberate `data-loom stop` stays stopped) — a per-user Scheduled Task on Windows, a LaunchAgent with `KeepAlive` on macOS, a systemd user unit with `Restart=on-failure` on Linux. `data-loom status` reports which mechanism is registered and whether it's supervised. If the supervising mechanism can't be created on your host (e.g. Task Scheduler unavailable, no systemd user session), `enable` falls back to a plain login-item shortcut and tells you supervision isn't available — autostart still works, it just won't self-heal from a crash.
+
+**Upgrading from an earlier version?** Re-running `data-loom autostart enable` migrates an existing plain login item to the supervised form automatically — no separate migration step. Or use the single command below, which upgrades and re-registers in one step:
+
+```
+data-loom update   # upgrade the global install, restart a running daemon, refresh autostart
+```
+
+`update` upgrades the globally-installed package, restarts the daemon if one is running, and rewrites the autostart registration (including migrating to the supervised form) if autostart is enabled — reporting each step. It only works for a global npm install; if you run DataLoom via `npx`, it tells you so instead of guessing.
 
 Everything is reversible: `data-loom stop`, `data-loom autostart disable`, `data-loom disconnect claude-code`, and `data-loom disconnect claude-desktop` (below) undo each side effect, and each is idempotent.
 
@@ -91,7 +101,7 @@ The running daemon also **hosts an MCP server** over HTTP, so your own Claude se
    data-loom connect claude-code
    ```
 
-   This registers DataLoom's loopback endpoint with Claude Code at user scope via Claude Code's own CLI (it runs `claude mcp add` for you; DataLoom never edits `~/.claude.json` itself). Start a new Claude Code session to pick it up, and remove it any time with `data-loom disconnect claude-code`. If the `claude` CLI isn't on your PATH, the command prints the manual line to run instead:
+   This registers DataLoom's loopback endpoint with Claude Code at user scope via Claude Code's own CLI (it runs `claude mcp add` for you; DataLoom never edits `~/.claude.json` itself) **and** provisions the `/loom:weave` command (see step 3) — one command, one reload, both the tools and `/loom:weave` are available. Remove both any time with `data-loom disconnect claude-code`. If the `claude` CLI isn't on your PATH, the command prints the manual line to run instead:
 
    ```
    claude mcp add --transport http --scope user data-loom http://127.0.0.1:4317/mcp
@@ -100,6 +110,14 @@ The running daemon also **hosts an MCP server** over HTTP, so your own Claude se
    Either way, if you enable always-on autostart (below), `data-loom autostart enable` already runs this registration for you — so a fresh install can be one command.
 
    The MCP server lives in the daemon, so **DataLoom must be running** for the tools to be reachable (start it with `data-loom start` or `npx @lyric_dev/data-loom "C:\path\to\your\project"`). It binds to loopback only.
+
+   **Prefer not to think about starting DataLoom at all?** Register the on-demand form instead:
+
+   ```
+   data-loom connect claude-code --on-demand
+   ```
+
+   This registers a stdio server that runs `data-loom mcp-shim` instead of pointing at the HTTP endpoint directly. Claude Code spawns that shim per session; it starts the daemon itself (through the same detached path as `data-loom start`) if it isn't already running, waits for it to come up, then transparently forwards MCP traffic to it — the shim adds no tools of its own, it just gets the real daemon running. Pick this when you don't run `autostart enable` and don't want to remember to `data-loom start` first; keep the default HTTP form when you're already running the dashboard always-on, since it's one less process per session. Only one form is ever registered — switching re-runs the same command with `--on-demand` (or without it, to switch back), and it reports the switch. `data-loom disconnect claude-code` removes whichever form is present.
 
    **Claude Desktop** reaches the same daemon — register it with:
 
@@ -114,11 +132,11 @@ The running daemon also **hosts an MCP server** over HTTP, so your own Claude se
    - `list_open_proposals(project?)` — the open changes with their proposal text, current phase/readiness, and dependency-review state (read-only; proposal text only, no secrets).
    - `set_dependency(from, to, project?)` — writes a `## Depends On` entry into a proposal.
    - `mark_independent(change, project?)` — records that a proposal genuinely depends on nothing, by writing an empty `## Depends On` block.
-   - `install_weave_skill` — installs the `/loom:weave` shortcut command (one-time setup, see below).
+   - `install_weave_skill` — fallback installer for the `/loom:weave` command (see below); unnecessary if you registered with `connect claude-code`, which already provisions it.
 
    Each write is an explicit, reviewable `## Depends On` edit; the roadmap then recomputes deterministically. Proposals that still need a dependency decision are flagged in the roadmap with a **"needs review"** badge, and DataLoom appears as a server in its own MCP Topology tab once registered.
 
-3. **One command for it all: `/loom:weave`.** Ask Claude to *"install the weave skill"* (it calls `install_weave_skill`). That writes a `/loom:weave` slash command into your global Claude config (`~/.claude/commands/loom/weave.md`); reload Claude Code, and from then on `/loom:weave` runs the whole review — list, propose, confirm, apply — in any project, passing that project explicitly. (It needs the daemon running; if the tools aren't reachable it tells you to start DataLoom.)
+3. **One command for it all: `/loom:weave`.** The whole review workflow — list, propose, confirm, apply — is served by the daemon itself as an MCP prompt named `weave`, so it always matches the running version. `data-loom connect claude-code` provisions a thin `/loom:weave` alias for it automatically (no separate install step); from then on, `/loom:weave` in any project fetches and runs the workflow, passing that project explicitly. If you registered another way, ask Claude to *"install the weave skill"* (it calls `install_weave_skill`) to add the alias yourself, then reload. (The alias needs the daemon running and registered; if unreachable it tells you to run `data-loom status` / `data-loom start` / `data-loom connect claude-code`.) Other MCP clients that support the prompts capability — e.g. Claude Desktop's prompt picker — can invoke the `weave` prompt directly, with no alias needed.
 
 > **Upgrading from an earlier version?** The MCP server used to be a per-project stdio registration (`claude mcp add data-loom -- npx … mcp "<path>"`). That mode is gone. Remove any old per-project `data-loom` registrations and add the single user-scope HTTP one above.
 

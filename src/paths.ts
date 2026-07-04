@@ -37,6 +37,14 @@ export function stateDir(): string {
 export const pidFile = (): string => join(stateDir(), "daemon.pid");
 export const logFile = (): string => join(stateDir(), "daemon.log");
 
+/**
+ * The stable launcher OS supervisors invoke (Scheduled Task / LaunchAgent /
+ * systemd unit) — a fixed path that never changes across Node version or
+ * package-location churn, unlike the `node` + script paths it wraps.
+ */
+export const launcherFile = (): string =>
+  join(stateDir(), process.platform === "win32" ? "daemon.cmd" : "daemon.sh");
+
 /** Create the state dir on demand; safe to call repeatedly. */
 export async function ensureStateDir(): Promise<string> {
   const dir = stateDir();

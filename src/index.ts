@@ -18,6 +18,9 @@ import * as lifecycle from "./lifecycle.js";
 import * as autostart from "./autostart.js";
 import * as claudeDesktop from "./claudeDesktop.js";
 import * as claudeCode from "./claudeCode.js";
+import { runShim } from "./mcpShim.js";
+import { refreshWeaveAliasIfOutdated } from "./weaveAlias.js";
+import { VERSION } from "./version.js";
 import { initTray, type Tray } from "./tray.js";
 import type { RoadmapModel } from "./types.js";
 import type { McpModel, McpServer, ProbeTarget } from "./mcp/types.js";
@@ -53,6 +56,16 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Heal an existing `/loom:weave` alias left by an older version (or a
+  // pre-stamp install) — never creates the file when the user hasn't opted in.
+  try {
+    await refreshWeaveAliasIfOutdated(VERSION);
+  } catch (err) {
+    console.warn(
+      `[data-loom] could not refresh the /loom:weave command (continuing): ${err instanceof Error ? err.message : err}`,
+    );
+  }
+
   // Resolve a viewable project: the launch dir, else the first discovered one,
   // else none. Never exit just because the launch dir isn't a project.
   let active: string | null = isViewableProject(initialProject) ? initialProject : null;
@@ -66,6 +79,10 @@ async function main(): Promise<void> {
     console.log("[data-loom] no openspec project found at launch — open the dashboard and pick one");
   }
 
+  // Forward reference so the loopback /api/shutdown route can invoke the same
+  // graceful shutdown() defined below (it's declared after startServer).
+  let shutdownRef: () => void = () => process.exit(0);
+
   try {
     server = await startServer({
       publicDir: resolvePublicDir(),
@@ -77,6 +94,7 @@ async function main(): Promise<void> {
       getProjects,
       selectProject,
       getCurrentProject: () => session?.project ?? null,
+      onShutdown: () => shutdownRef(),
     });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
@@ -95,16 +113,30 @@ async function main(): Promise<void> {
   if (session) console.log(`[data-loom] project: ${session.project}`);
   openBrowser(url);
 
+  // When launched supervised (an OS login supervisor execs this directly, in
+  // the foreground, with DATA_LOOM_DETACHED=1), there is no parent `start`
+  // spawn to record our PID — write it ourselves so `status`/`stop` work the
+  // same as when `start` launched us detached.
+  if (process.env.DATA_LOOM_DETACHED) {
+    await lifecycle.writeSelfPid().catch(() => {});
+  }
+
   // Tray icon: an ambient "DataLoom is running" indicator (essential in the
   // detached mode, which has no console). Guarded no-op where unavailable.
   let tray: Tray = { dispose: () => {} };
 
+  // Every deliberate shutdown path below (SIGINT, SIGTERM, tray Stop) funnels
+  // through here and exits 0. OS supervisors (Scheduled Task restart-on-
+  // failure, launchd KeepAlive, systemd Restart=on-failure) treat a clean
+  // exit 0 as "stopped on purpose" and do NOT restart it — only a crash or
+  // non-zero exit does. Do not change a deliberate stop to any other exit code.
   const shutdown = (): void => {
     tray.dispose();
     session?.stopWatch();
     server?.close();
     process.exit(0);
   };
+  shutdownRef = shutdown; // route the loopback /api/shutdown POST here too
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
@@ -220,13 +252,28 @@ function copyToClipboard(text: string): void {
 // anything else falls through to the foreground daemon (with argv[2] as the
 // optional project path), preserving the original invocation unchanged.
 
-const VERBS = new Set(["start", "stop", "restart", "status", "autostart", "connect", "disconnect"]);
+const VERBS = new Set([
+  "start",
+  "stop",
+  "restart",
+  "status",
+  "autostart",
+  "connect",
+  "disconnect",
+  "update",
+  "mcp-shim",
+]);
 
 async function runAutostart(rest: string[]): Promise<void> {
   const sub = rest[0];
   if (sub === "enable") {
-    await autostart.enable();
-    console.log("[data-loom] autostart enabled (launches on login)");
+    const info = await autostart.enable();
+    console.log(
+      `[data-loom] autostart enabled (${info.mechanism})` +
+        (info.supervised
+          ? " — the daemon restarts automatically if it crashes"
+          : " — supervision is not available on this host; the daemon will not auto-restart on crash"),
+    );
     // Enabling also brings the daemon up now, so it's running this session too —
     // opt out with --no-start.
     if (!rest.includes("--no-start")) await lifecycle.start();
@@ -264,11 +311,23 @@ async function runAutostart(rest: string[]): Promise<void> {
 async function runConnect(rest: string[]): Promise<void> {
   const target = rest[0];
   if (target === "claude-code") {
-    const registered = await claudeCode.connect();
+    const onDemand = rest.includes("--on-demand");
+    const { registered, switchedFrom } = await claudeCode.connect({ onDemand });
     if (registered) {
-      console.log("[data-loom] registered DataLoom in Claude Code (user scope, native HTTP)");
+      if (switchedFrom) {
+        console.log(
+          `[data-loom] switched Claude Code registration from ${switchedFrom === "stdio" ? "on-demand stdio" : "native HTTP"} to ${onDemand ? "on-demand stdio" : "native HTTP"}`,
+        );
+      }
       console.log(
-        "[data-loom] start a new Claude Code session (or /mcp reconnect) to pick it up; DataLoom must be running to serve the tools.",
+        onDemand
+          ? "[data-loom] registered DataLoom in Claude Code (user scope, on-demand stdio shim)"
+          : "[data-loom] registered DataLoom in Claude Code (user scope, native HTTP)",
+      );
+      console.log(
+        onDemand
+          ? "[data-loom] start a new Claude Code session (or /mcp reconnect) to pick it up; the shim starts DataLoom automatically when needed."
+          : "[data-loom] start a new Claude Code session (or /mcp reconnect) to pick it up; DataLoom must be running to serve the tools.",
       );
     }
     return;
@@ -280,7 +339,7 @@ async function runConnect(rest: string[]): Promise<void> {
     console.log("[data-loom] restart Claude Desktop to pick it up; DataLoom must be running to serve the tools.");
     return;
   }
-  throw new Error("usage: data-loom connect <claude-code|claude-desktop [--bridge]>");
+  throw new Error("usage: data-loom connect <claude-code [--on-demand]|claude-desktop [--bridge]>");
 }
 
 async function runDisconnect(rest: string[]): Promise<void> {
@@ -317,12 +376,16 @@ async function runCli(argv: string[]): Promise<void> {
       return lifecycle.restart(rest[0]);
     case "status":
       return lifecycle.status();
+    case "update":
+      return lifecycle.update();
     case "autostart":
       return runAutostart(rest);
     case "connect":
       return runConnect(rest);
     case "disconnect":
       return runDisconnect(rest);
+    case "mcp-shim":
+      return runShim();
     default:
       throw new Error(`unknown command: ${verb}`);
   }

@@ -8,16 +8,20 @@
 // explicit `project` argument, falling back to the daemon's current dashboard
 // selection. The server holds no single project frozen for its lifetime.
 
-import { readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { OpenSpecClient } from "./openspecClient.js";
 import { deriveModel } from "./derive.js";
 import { discoverProjects, isViewableProject } from "./projects.js";
+import { provisionWeaveAlias } from "./weaveAlias.js";
+import { VERSION } from "./version.js";
 import type { ChangeNode } from "./types.js";
 
 /** Daemon state the MCP layer depends on — keeps one source of project truth. */
@@ -34,21 +38,6 @@ export interface McpDeps {
  */
 class ToolError extends Error {}
 
-// The advertised server version — read from the package manifest shipped next
-// to the compiled code, so it can never drift from the released version again
-// (it was hardcoded and stuck at 0.4.1 through the 0.5.0 release).
-const VERSION = ((): string => {
-  try {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const manifest = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8")) as {
-      version?: string;
-    };
-    return manifest.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-})();
-
 // Advertised to the client on connect. The "confirm before writing" gate lives
 // here, in the agent's behavior — the server cannot verify a human approved.
 const INSTRUCTIONS = `This server exposes a project's open OpenSpec proposals and lets you record the dependency order between them. It holds no model and cannot infer anything on its own — the judgment is yours and the decision is the user's.
@@ -62,20 +51,18 @@ When you connect, call list_open_proposals (passing the project you are working 
 
 Never write a dependency the user has not confirmed. Proposals already marked "declared" need no action.
 
-Tip: call install_weave_skill once to add a \`/loom:weave\` command (written to the user's global Claude config) that runs this whole review in one step; the user reloads Claude Code to pick it up. Register this server once, globally, with: claude mcp add --transport http --scope user data-loom http://127.0.0.1:4317/mcp`;
+Tip: register this server with \`data-loom connect claude-code\` — it provisions both the MCP registration and the \`/loom:weave\` command in one step, so one reload picks up both. If you registered another way, call install_weave_skill once to add \`/loom:weave\` yourself.`;
 
-// The `/loom:weave` slash command this server installs into the user's global
-// Claude commands dir. Static content that only orchestrates this server's tools.
-const WEAVE_COMMAND = `---
-name: "Loom: Weave"
-description: "Review the open proposals and weave their dependency order via the data-loom MCP server"
-category: Workflow
-tags: [loom, dependencies, mcp, review]
----
+const WEAVE_PROMPT_NAME = "weave";
+const WEAVE_PROMPT_DESCRIPTION =
+  "Review the open proposals and weave their dependency order via the data-loom MCP server";
 
-Weave the dependency order of this project's open OpenSpec proposals, using the **data-loom** MCP server.
+// The full review workflow, served as an MCP prompt (the single source of
+// truth — see design.md) and fetched by the thin `/loom:weave` alias installed
+// on disk. Only orchestrates this server's own tools.
+const WEAVE_PROMPT = `Weave the dependency order of this project's open OpenSpec proposals, using the **data-loom** MCP server.
 
-**Prerequisite:** the DataLoom dashboard daemon must be running and the data-loom MCP server registered in this session — its tools are \`list_open_proposals\`, \`set_dependency\`, \`mark_independent\`, and \`list_projects\`. If those tools are not available, the daemon is almost certainly not running: tell the user to **start DataLoom** (\`npx @lyric_dev/data-loom "<project path>"\`) and, if they have not already, register it once with \`claude mcp add --transport http --scope user data-loom http://127.0.0.1:4317/mcp\`, then stop.
+**Prerequisite:** the DataLoom dashboard daemon must be running and the data-loom MCP server registered in this session — its tools are \`list_open_proposals\`, \`set_dependency\`, \`mark_independent\`, and \`list_projects\`. If those tools are not available, the daemon is almost certainly not running or not registered: tell the user to check \`data-loom status\`, start it with \`data-loom start\` if needed, and register it with \`data-loom connect claude-code\` if needed, then stop.
 
 Steps:
 
@@ -107,8 +94,22 @@ const PROJECT_ARG = {
 export function createMcpServer(deps: McpDeps): Server {
   const server = new Server(
     { name: "data-loom", version: VERSION },
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
+    { capabilities: { tools: {}, prompts: {} }, instructions: INSTRUCTIONS },
   );
+
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: [{ name: WEAVE_PROMPT_NAME, description: WEAVE_PROMPT_DESCRIPTION }],
+  }));
+
+  server.setRequestHandler(GetPromptRequestSchema, async (req) => {
+    if (req.params.name !== WEAVE_PROMPT_NAME) {
+      throw new ToolError(`unknown prompt: ${req.params.name}`);
+    }
+    return {
+      description: WEAVE_PROMPT_DESCRIPTION,
+      messages: [{ role: "user" as const, content: { type: "text" as const, text: WEAVE_PROMPT } }],
+    };
+  });
 
   // Resolve the target project for a call: explicit arg, then dashboard
   // selection, then an instructive error. Validated as a real workspace before
@@ -179,7 +180,7 @@ export function createMcpServer(deps: McpDeps): Server {
       {
         name: "install_weave_skill",
         description:
-          "Install the `/loom:weave` slash command into the user's global Claude commands directory (~/.claude/commands/loom/weave.md), so this dependency review can be run as a single command from any project. Writes a static command file only (no project data or secrets) and overwrites any existing copy. Run once, then the user reloads Claude Code.",
+          "Install the `/loom:weave` slash command into the user's global Claude commands directory (~/.claude/commands/loom/weave.md) — a thin, version-stamped alias that fetches and follows this server's `weave` prompt, so this dependency review can be run as a single command from any project. `data-loom connect claude-code` already provisions this automatically; use this tool as a fallback when the command registered another way. Writes a static alias file only (no project data or secrets) and overwrites any existing copy. Run once, then the user reloads Claude Code.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
       },
     ],
@@ -304,15 +305,12 @@ async function markIndependent(
 }
 
 /**
- * Provision the `/loom:weave` command into the user's GLOBAL Claude commands
- * dir, so the review runs as one command from any project. Writes only the
- * static command file; overwrites in place.
+ * Provision the `/loom:weave` alias into the user's GLOBAL Claude commands
+ * dir, so the review runs as one command from any project. The alias delegates
+ * to this server's `weave` prompt; see weaveAlias.ts.
  */
 async function installWeaveSkill() {
-  const dir = join(homedir(), ".claude", "commands", "loom");
-  const path = join(dir, "weave.md");
-  await mkdir(dir, { recursive: true });
-  await writeFile(path, WEAVE_COMMAND);
+  const path = await provisionWeaveAlias(VERSION);
   return {
     installed: true,
     command: "/loom:weave",

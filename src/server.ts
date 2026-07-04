@@ -37,8 +37,17 @@ export async function startServer(opts: {
   getProjects: () => Promise<ProjectModel>;
   selectProject: (path: string) => Promise<ProjectModel>;
   getCurrentProject: () => string | null;
+  /**
+   * Trigger the daemon's own graceful shutdown (exit 0). Exposed over a
+   * loopback POST so `data-loom stop` can end the daemon through its normal
+   * exit-0 path on every OS — essential on Windows, where `process.kill` maps
+   * to TerminateProcess (exit 1) and never runs the SIGTERM handler, which
+   * would make a supervising Scheduled Task treat a clean stop as a crash and
+   * restart it.
+   */
+  onShutdown?: () => void;
 }): Promise<RunningServer> {
-  const { publicDir, host, port, getRoadmap, getMcp, checkMcp, getProjects, selectProject, getCurrentProject } = opts;
+  const { publicDir, host, port, getRoadmap, getMcp, checkMcp, getProjects, selectProject, getCurrentProject, onShutdown } = opts;
 
   let wss: WebSocketServer;
   const broadcast = (msg: unknown): void => {
@@ -169,6 +178,16 @@ export async function startServer(opts: {
       if (url.pathname === "/api/model") return sendJson(res, getRoadmap());
       if (url.pathname === "/api/mcp") return sendJson(res, getMcp());
       if (url.pathname === "/api/projects") return sendJson(res, await getProjects());
+
+      if (url.pathname === "/api/shutdown" && req.method === "POST") {
+        // Loopback-only (isAllowed already ran) graceful stop. Answer first,
+        // then trigger shutdown once the response has flushed so the caller
+        // gets its 200 before the process exits.
+        res.writeHead(200, { "content-type": MIME[".json"] });
+        res.end(JSON.stringify({ stopping: true }));
+        res.on("finish", () => setImmediate(() => onShutdown?.()));
+        return;
+      }
 
       if (url.pathname === "/api/mcp/check" && req.method === "POST") {
         const server = await checkMcp(url.searchParams.get("name") ?? "");

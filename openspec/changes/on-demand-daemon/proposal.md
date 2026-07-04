@@ -28,3 +28,6 @@ This is deliberately captured alongside `harden-always-on` as a complementary (p
 - **Interaction with always-on**: independent at runtime (the shim no-ops its launch step when a daemon is already running); the product decision of which registration `up`/`autostart enable` should default to is left to those capabilities and the dependency review.
 - **Claude Desktop**: unchanged here; its existing `--bridge` mode could later point at the same shim, noted as a follow-up.
 - **No new npm dependencies** (the MCP SDK is already a dependency).
+
+## Depends On
+- add-connect-claude-code
