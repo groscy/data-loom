@@ -34,6 +34,21 @@ export interface RegistrationInfo {
   supervised: boolean;
 }
 
+export interface EnableResult {
+  mechanism: RegistrationInfo["mechanism"];
+  /** True iff the OS supervises the daemon and restarts it after a crash. */
+  supervised: boolean;
+  /**
+   * True iff registering also launched the daemon immediately, so it's already
+   * running this session — the supervised start-on-register mechanisms
+   * (systemd `enable --now`, launchd `RunAtLoad`) do this, while the
+   * logon/login-triggered ones (Windows Scheduled Task, the legacy shortcut /
+   * XDG fallbacks) do not. Callers use this to avoid spawning a second instance
+   * that would race the supervised one for the port.
+   */
+  startedNow: boolean;
+}
+
 function exists(p: string): Promise<boolean> {
   return access(p).then(
     () => true,
@@ -150,17 +165,19 @@ async function winEnableLegacyShortcut(): Promise<void> {
   );
 }
 
-async function winEnable(): Promise<{ mechanism: RegistrationInfo["mechanism"]; supervised: boolean }> {
+async function winEnable(): Promise<EnableResult> {
   try {
     await winRegisterScheduledTask();
     // Migrate away from any legacy shortcut now that the supervised form exists.
     await rm(winStartupLnk(), { force: true }).catch(() => {});
-    return { mechanism: "scheduled-task", supervised: true };
+    // The Scheduled Task fires on the next logon, not now — the caller still
+    // needs to start the daemon for this session.
+    return { mechanism: "scheduled-task", supervised: true, startedNow: false };
   } catch {
     // Scheduled Task creation failed (e.g. Task Scheduler service unavailable) —
     // fall back to the legacy shortcut so autostart still works, just unsupervised.
     await winEnableLegacyShortcut();
-    return { mechanism: "startup-shortcut", supervised: false };
+    return { mechanism: "startup-shortcut", supervised: false, startedNow: false };
   }
 }
 
@@ -181,7 +198,7 @@ function macPlistPath(): string {
   return join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 }
 
-async function macEnable(): Promise<{ mechanism: RegistrationInfo["mechanism"]; supervised: boolean }> {
+async function macEnable(): Promise<EnableResult> {
   const launcher = await writeLauncher();
   const path = macPlistPath();
   await mkdir(dirname(path), { recursive: true });
@@ -208,7 +225,9 @@ async function macEnable(): Promise<{ mechanism: RegistrationInfo["mechanism"]; 
   // effect if the agent was already loaded from a prior (pre-supervision) version.
   await runBestEffort("launchctl", ["unload", "-w", path]);
   await runBestEffort("launchctl", ["load", "-w", path]);
-  return { mechanism: "launch-agent", supervised: true };
+  // `load -w` with RunAtLoad launches the daemon now, so it's already up this
+  // session — the caller must not spawn a second instance that races it.
+  return { mechanism: "launch-agent", supervised: true, startedNow: true };
 }
 
 async function macDisable(): Promise<void> {
@@ -293,16 +312,20 @@ X-GNOME-Autostart-enabled=true
   await writeFile(linuxDesktopPath(), entry, "utf8");
 }
 
-async function linuxEnable(): Promise<{ mechanism: RegistrationInfo["mechanism"]; supervised: boolean }> {
+async function linuxEnable(): Promise<EnableResult> {
   if (await hasSystemdUserAvailable()) {
     await linuxSystemdEnable();
     // Migrate away from any legacy XDG entry now that the supervised form exists.
     await rm(linuxDesktopPath(), { force: true }).catch(() => {});
-    return { mechanism: "systemd-unit", supervised: true };
+    // `enable --now` starts the unit immediately, so the daemon is already up
+    // this session — the caller must not spawn a second instance that races it.
+    return { mechanism: "systemd-unit", supervised: true, startedNow: true };
   }
   // No systemd user session available — fall back to XDG autostart, unsupervised.
+  // XDG entries only fire on the next login, so the caller still starts the
+  // daemon for this session.
   await linuxEnableXdg();
-  return { mechanism: "xdg-autostart", supervised: false };
+  return { mechanism: "xdg-autostart", supervised: false, startedNow: false };
 }
 
 async function linuxDisable(): Promise<void> {
@@ -333,7 +356,7 @@ function unsupported(): never {
  * supervising mechanism can't be created. Migrates away from a legacy
  * registration when the supervised form succeeds.
  */
-export async function enable(): Promise<{ mechanism: RegistrationInfo["mechanism"]; supervised: boolean }> {
+export async function enable(): Promise<EnableResult> {
   if (process.platform === "win32") return winEnable();
   if (process.platform === "darwin") return macEnable();
   if (process.platform === "linux") return linuxEnable();

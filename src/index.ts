@@ -13,7 +13,7 @@ import { discover } from "./mcp/discovery.js";
 import { checkServer } from "./mcp/availability.js";
 import { discoverProjects, isViewableProject, type ProjectModel } from "./projects.js";
 import { resolvePublicDir } from "./assets.js";
-import { HOST, PORT } from "./paths.js";
+import { HOST, PORT, baseUrl } from "./paths.js";
 import * as lifecycle from "./lifecycle.js";
 import * as autostart from "./autostart.js";
 import * as claudeDesktop from "./claudeDesktop.js";
@@ -274,9 +274,16 @@ async function runAutostart(rest: string[]): Promise<void> {
           ? " — the daemon restarts automatically if it crashes"
           : " — supervision is not available on this host; the daemon will not auto-restart on crash"),
     );
-    // Enabling also brings the daemon up now, so it's running this session too —
-    // opt out with --no-start.
-    if (!rest.includes("--no-start")) await lifecycle.start();
+    // Enabling also brings the daemon up now, so it's running this session too.
+    // A supervised start-on-register mechanism (systemd `enable --now`, launchd
+    // `RunAtLoad`) already launched it — starting again would spawn a second
+    // detached instance that races the supervised one for the port, so only
+    // start it ourselves when registration didn't. Opt out with --no-start.
+    if (info.startedNow) {
+      console.log(`[data-loom] the daemon is running now — ${baseUrl()}`);
+    } else if (!rest.includes("--no-start")) {
+      await lifecycle.start();
+    }
     // ...and points Claude Code at it, so the always-on path both hosts and
     // registers the MCP endpoint. Best-effort: a missing `claude` CLI must not
     // fail the enable (the login item + daemon already succeeded). Opt out with
