@@ -540,6 +540,108 @@ main {
   color: var(--text);
   font-family: var(--prose);
 }
+.banner-action {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--prose);
+  font-weight: 600;
+  font-size: 12px;
+  padding: 6px 15px;
+  border-radius: 8px;
+  border: 1px solid var(--accent-bd);
+  background: var(--panel);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.banner-action:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* ===== Command handoff: card/detail actions + toast ===== */
+.card-action {
+  align-self: flex-start;
+  margin-top: 10px;
+  font-family: var(--prose);
+  font-weight: 600;
+  font-size: 11px;
+  padding: 4px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--accent-bd);
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.card-action:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.card-action.archive {
+  border-color: var(--c-done);
+  color: var(--c-done);
+  background: transparent;
+}
+.card-action.archive:hover {
+  background: var(--c-done);
+  color: var(--on-accent);
+}
+
+.detail-action {
+  margin-top: 16px;
+  width: 100%;
+  font-family: var(--prose);
+  font-weight: 600;
+  font-size: 12.5px;
+  padding: 9px;
+  border-radius: 9px;
+  border: 1px solid var(--accent-bd);
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.detail-action:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.detail-action.archive {
+  border-color: var(--c-done);
+  color: var(--c-done);
+}
+.detail-action.archive:hover {
+  background: var(--c-done);
+  color: var(--on-accent);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translate(-50%, 12px);
+  max-width: min(70vw, 480px);
+  padding: 11px 16px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--accent-bd);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 40;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.toast.warn {
+  border-color: var(--c-warn);
+  color: var(--c-warn);
+}
 
 /* ===== MCP Topology: circuit board ===== */
 .topo-controls {

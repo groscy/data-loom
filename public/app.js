@@ -180,8 +180,12 @@ function renderReview() {
   reviewEl.appendChild(el("span", "review-badge", String(n)));
   const txt = el("span", "review-text");
   const subject = n > 1 ? "proposals need" : "proposal needs";
-  txt.innerHTML = `${n} ${subject} dependency review — ask Claude to <b>weave</b> ${n > 1 ? "them" : "it"} via the data-loom MCP server.`;
+  txt.innerHTML = `${n} ${subject} dependency review — copy the <b>weave</b> command to run it in Claude Code.`;
   reviewEl.appendChild(txt);
+  const btn = el("button", "banner-action", "Weave");
+  btn.title = "Copy /loom:weave";
+  btn.addEventListener("click", () => copyCommand("/loom:weave"));
+  reviewEl.appendChild(btn);
 }
 
 function clearBoard() {
@@ -271,6 +275,16 @@ function renderCard(c) {
     const tasks = c.totalTasks > 0 ? `${c.completedTasks}/${c.totalTasks} tasks` : "";
     const text = [capsParts.join("  "), tasks].filter(Boolean).join(" · ");
     body.appendChild(el("div", "gcard-caps", text));
+  }
+  const action = changeAction(c);
+  if (action) {
+    const btn = el("button", "card-action " + action.kind, action.label);
+    btn.title = "Copy " + action.command;
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation(); // copy only — don't also select the card / open detail
+      copyCommand(action.command);
+    });
+    body.appendChild(btn);
   }
   card.appendChild(body);
 
@@ -524,6 +538,13 @@ function renderChangeDetail(c) {
   pills.appendChild(rp);
   inner.appendChild(pills);
 
+  const action = changeAction(c);
+  if (action) {
+    const btn = el("button", "detail-action " + action.kind, "Copy " + action.command);
+    btn.addEventListener("click", () => copyCommand(action.command));
+    inner.appendChild(btn);
+  }
+
   if (c.totalTasks > 0) {
     const pct = Math.round((c.completedTasks / c.totalTasks) * 100);
     const tasks = el("div", "detail-tasks");
@@ -605,6 +626,57 @@ function itemList(items, cls, prefix) {
   const list = el("div", "detail-list");
   for (const it of items) list.appendChild(el("span", "detail-item" + (cls ? " " + cls : ""), (prefix || "") + it));
   return list;
+}
+
+// ═══════════════ command handoff (clipboard + toast) ═══════════════
+
+// A single reused toast node, auto-dismissed. DataLoom prepares a command; the
+// user runs it in their own Claude Code session — so a copy is confirmed here,
+// never executed.
+let toastEl = null;
+let toastTimer = null;
+function showToast(message, tone) {
+  if (!toastEl) {
+    toastEl = el("div", "toast");
+    document.body.appendChild(toastEl);
+  }
+  toastEl.textContent = message;
+  toastEl.className = "toast" + (tone ? " " + tone : "");
+  // force reflow so re-triggering the transition restarts it
+  void toastEl.offsetWidth;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3200);
+}
+
+// Copy a Claude Code command to the clipboard and confirm via a toast. Purely
+// client-side: no network call, no daemon/agent activity. On localhost the
+// Clipboard API is available (secure context); a rejection or its absence falls
+// back to showing the command for manual copy.
+async function copyCommand(command) {
+  try {
+    await navigator.clipboard.writeText(command);
+    showToast(`Copied ${command} — paste into Claude Code`);
+  } catch {
+    showToast(`Couldn't copy — run this in Claude Code: ${command}`, "warn");
+  }
+}
+
+// The command action a change offers, derived from state the model already
+// carries. Kept in one place so a card and the detail panel always agree:
+//   archived            → nothing
+//   tasks all complete  → archive
+//   ready (incomplete)  → apply
+//   otherwise           → nothing
+function changeAction(c) {
+  if (c.archived) return null;
+  if (c.totalTasks > 0 && c.completedTasks === c.totalTasks) {
+    return { kind: "archive", label: "Archive", command: "/opsx:archive " + c.name };
+  }
+  if (c.readiness === "ready") {
+    return { kind: "apply", label: "Apply", command: "/opsx:apply " + c.name };
+  }
+  return null;
 }
 
 // ═══════════════ helpers ═══════════════
