@@ -29,9 +29,9 @@ let conflictedNames = new Set();
 let doneCollapsed = true;
 const liveOverride = new Map(); // server name -> transient liveness (e.g. "checking")
 
-// ── roadmap graph geometry (fixed design canvas, 1180×600) ──
+// ── roadmap graph geometry (fixed left/right margin + fixed per-phase pitch) ──
 const G_MX = 150,
-  G_W = 1180,
+  PHASE_SPAN = 260, // horizontal pitch between phase columns (234px frame + gutter)
   N_HALF = 105,
   N_TOP = 58,
   V_SPACE = 170;
@@ -204,8 +204,11 @@ function renderBoard() {
   }
 
   const phaseNums = [...new Set(open.map((c) => c.phase))].sort((a, b) => a - b);
-  const span = (G_W - 2 * G_MX) / Math.max(phaseNums.length - 1, 1);
-  const gx = (p) => G_MX + phaseNums.indexOf(p) * span;
+  // Fixed per-phase pitch → the canvas grows wider as phases are added instead of
+  // squeezing columns into a constant width. Wide plans then scroll horizontally
+  // (see .board-wrap) rather than overlapping.
+  const canvasW = 2 * G_MX + Math.max(phaseNums.length - 1, 0) * PHASE_SPAN;
+  const gx = (p) => G_MX + phaseNums.indexOf(p) * PHASE_SPAN;
 
   // Grow the canvas vertically so the tallest phase always fits (real projects
   // can stack many cards in one phase). CARD_BAND leaves headroom for the
@@ -214,8 +217,9 @@ function renderBoard() {
   const maxN = Math.max(1, ...phaseNums.map((p) => open.filter((c) => c.phase === p).length));
   const canvasH = Math.max(600, (maxN - 1) * V_SPACE + CARD_BAND);
   const cy = canvasH / 2;
+  board.style.width = canvasW + "px";
   board.style.height = canvasH + "px";
-  edgesSvg.setAttribute("viewBox", `0 0 ${G_W} ${canvasH}`);
+  edgesSvg.setAttribute("viewBox", `0 0 ${canvasW} ${canvasH}`);
 
   // Phase-band frames (behind everything), sized to the canvas.
   phaseNums.forEach((p, i) => {

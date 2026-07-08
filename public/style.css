@@ -293,12 +293,12 @@ main {
 
 .board-wrap {
   position: relative;
+  overflow-x: auto; /* wide roadmaps (many phases) pan horizontally; banners above stay fixed */
 }
 .board {
   position: relative;
-  width: 1180px;
-  height: 600px;
-  margin: 0 auto;
+  height: 600px; /* width + height are set from JS per phase/card count */
+  margin: 0 auto; /* centers when it fits; collapses to 0 when it overflows and scrolls */
 }
 .edges {
   position: absolute;
