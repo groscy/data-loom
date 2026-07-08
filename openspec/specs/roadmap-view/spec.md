@@ -71,17 +71,6 @@ The view SHALL present a project selector showing the currently active project a
 - **WHEN** the user picks a different project from the selector
 - **THEN** the dashboard switches to that project and both tabs reflect it
 
-### Requirement: Vertically stacked phase bands
-The roadmap SHALL render phases as vertically stacked bands ordered by ascending phase (the earliest phase on top), where each band is a visually bounded container holding that phase's change cards in a row, and consecutive bands are connected by a downward phase-progression indicator.
-
-#### Scenario: Phases stack top to bottom
-- **WHEN** the roadmap renders changes across multiple phases
-- **THEN** each phase appears as its own band, ordered earliest-on-top, with that phase's changes laid out in a row inside the band
-
-#### Scenario: Phase progression is indicated
-- **WHEN** the roadmap shows more than one phase
-- **THEN** a downward indicator connects each band to the next, conveying phase order
-
 ### Requirement: Dependencies remain visible in the band layout
 In the stacked-band layout the roadmap SHALL continue to show dependency relationships as connectors between the specific change cards involved.
 
@@ -99,4 +88,30 @@ The view SHALL indicate which open changes have a `pending` dependency-review st
 #### Scenario: No indicator when all declared
 - **WHEN** every open change has a `declared` dependency-review state
 - **THEN** the view shows no needs-review indicator
+
+### Requirement: Phase columns keep a fixed footprint at any depth
+The roadmap SHALL render phases as horizontally-arranged columns in ascending phase order, where each phase column occupies a fixed, phase-count-independent horizontal footprint. Phase frames and change cards SHALL NOT shrink, overlap, or clip as the number of phases grows, so a plan with many phases stays as legible as a plan with few.
+
+#### Scenario: Many phases do not overlap
+- **WHEN** the roadmap renders a plan with more phases than fit the viewport width
+- **THEN** each phase column keeps its full fixed width and its change cards remain fully visible without overlapping or clipping neighbouring phases
+
+#### Scenario: Card size is independent of phase count
+- **WHEN** two plans differ only in how many phases they contain
+- **THEN** an individual change card is rendered at the same width in both
+
+### Requirement: Horizontal scrolling for wide roadmaps
+The roadmap canvas width SHALL grow with the number of phases. When the total width exceeds the available viewport width, the view SHALL provide horizontal scrolling so every phase can be panned into view. When the roadmap fits within the viewport, it SHALL remain centered with no horizontal scrollbar. Dependency connectors SHALL align with their change cards across the full scrollable width.
+
+#### Scenario: Wide roadmap scrolls horizontally
+- **WHEN** the combined width of all phase columns exceeds the viewport width
+- **THEN** the roadmap becomes horizontally scrollable and later phases can be reached by scrolling sideways
+
+#### Scenario: Narrow roadmap stays centered
+- **WHEN** all phase columns fit within the viewport width
+- **THEN** the roadmap is centered and shows no horizontal scrollbar
+
+#### Scenario: Dependency edges track the full width
+- **WHEN** the roadmap is wider than the viewport and a change depends on one in an earlier phase
+- **THEN** the dependency connector is drawn between the two cards at their actual positions across the full scrollable width
 
