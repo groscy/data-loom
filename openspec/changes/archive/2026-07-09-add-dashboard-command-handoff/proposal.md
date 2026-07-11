@@ -32,3 +32,5 @@ _None._ (Extends the existing roadmap view.)
 - **Code**: `public/app.js` (a Weave action on the review banner in `renderReview`; Apply / Archive actions in both `renderCard` and `renderChangeDetail`, with the card action stopping propagation so it does not also select the card; a shared `copyCommand(text)` helper that writes to the clipboard and raises a toast); `public/style.css` (action-button and toast styles). No changes to `src/`, the daemon, the MCP server, or the roadmap model.
 - **Constraint** (inherited from the dashboard's "mirror, never launcher" posture): the dashboard remains passive. These actions place command text on the clipboard for the user to run in their own Claude Code session; DataLoom neither runs an agent nor holds a model, so it cannot and does not execute the workflows itself.
 - **No new dependencies. No daemon protocol change**: the actions are derived from state the model already carries (`dependencyReview`, `readiness`, `completedTasks` / `totalTasks`, `archived`).
+
+## Depends On
