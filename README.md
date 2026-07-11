@@ -7,6 +7,8 @@ A fully-local dashboard for spec-driven development. Two views of the same workf
 
 It runs as a small local daemon (a Node HTTP + WebSocket server) and a browser view on `localhost`. The daemon is the single source of truth; the page is a thin, live-updating view.
 
+For how the pieces fit together — the daemon's subsystems, the live write-back loop, and a module map — see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Prerequisite
 
 DataLoom reads your workspace through the **OpenSpec CLI**, which is **not bundled**. Install it separately:
