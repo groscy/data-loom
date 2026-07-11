@@ -2,7 +2,7 @@
 // Derivation is a pure function of the current workspace — nothing is stored.
 
 import type { OpenSpecClient, ChangeListEntry } from "./openspecClient.js";
-import type { ChangeNode, Conflict, Phase, RoadmapModel, Status } from "./types.js";
+import type { ChangeNode, Conflict, Phase, RoadmapModel, Status, TaskGroup } from "./types.js";
 
 export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel> {
   const [list, archived, baseline] = await Promise.all([
@@ -30,6 +30,13 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
   const reviewed = new Map<string, boolean>();
   await Promise.all(
     names.map(async (n) => reviewed.set(n, await client.hasDependsOnSection(n))),
+  );
+
+  // Structured task list per change, read directly from `tasks.md` (the CLI
+  // carries only counts). Rides the model push, so it live-updates for free.
+  const tasksByName = new Map<string, TaskGroup[]>();
+  await Promise.all(
+    names.map(async (n) => tasksByName.set(n, await client.readTasks(n))),
   );
   const nameSet = new Set(names);
   const archivedBare = new Set(archived.map((a) => a.replace(/^\d{4}-\d{2}-\d{2}-/, "")));
@@ -76,6 +83,7 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
       archived: false,
       completedTasks: c.completedTasks,
       totalTasks: c.totalTasks,
+      tasks: tasksByName.get(c.name) ?? [],
     });
   }
 
@@ -95,6 +103,7 @@ export async function deriveModel(client: OpenSpecClient): Promise<RoadmapModel>
       archived: true,
       completedTasks: 0,
       totalTasks: 0,
+      tasks: [],
     });
   }
 

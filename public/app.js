@@ -152,6 +152,12 @@ function render(m) {
   nextUpNames = new Set(ready.filter((c) => c.phase === minPhase).map((c) => c.name));
   renderBoard();
   renderDoneBand();
+  // Keep an open change-detail panel in sync with the freshly pushed model, so
+  // task-list / progress edits live-update without re-selecting the node.
+  if (selectedChange) {
+    const c = m.changes.find((x) => x.name === selectedChange);
+    if (c) renderChangeDetail(c);
+  }
 }
 
 function renderConflicts(conflicts) {
@@ -509,12 +515,16 @@ function closeDetail() {
 }
 
 function openPanel(server) {
+  const wasHidden = detail.classList.contains("hidden");
   detail.classList.remove("hidden");
   detail.classList.toggle("server", !!server);
-  // re-trigger slide-in animation
-  detail.style.animation = "none";
-  void detail.offsetWidth;
-  detail.style.animation = "";
+  // Re-trigger the slide-in only on a genuine open — not on a live re-render of
+  // an already-visible panel, which would otherwise flicker on every push.
+  if (wasHidden) {
+    detail.style.animation = "none";
+    void detail.offsetWidth;
+    detail.style.animation = "";
+  }
 }
 
 function detailHeader(name) {
@@ -562,6 +572,22 @@ function renderChangeDetail(c) {
     track.appendChild(fill);
     tasks.appendChild(track);
     inner.appendChild(tasks);
+  }
+
+  // Full task list, grouped by section, below the progress bar. Read-only —
+  // it mirrors state parsed from tasks.md and offers no toggle control.
+  if (c.tasks?.length) {
+    const list = el("div", "detail-tasklist");
+    for (const group of c.tasks) {
+      if (group.section) list.appendChild(el("div", "detail-tasklist-section", group.section));
+      for (const item of group.items) {
+        const row = el("div", "detail-task" + (item.done ? " done" : ""));
+        row.appendChild(el("span", "detail-task-mark", item.done ? "✓" : ""));
+        row.appendChild(el("span", "detail-task-text", item.text));
+        list.appendChild(row);
+      }
+    }
+    inner.appendChild(list);
   }
 
   inner.appendChild(el("div", "detail-section first", "Depends on"));

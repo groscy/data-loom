@@ -915,6 +915,58 @@ main {
   border-radius: 6px;
 }
 
+/* full task list (read-only), grouped by section */
+.detail-tasklist {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.detail-tasklist-section {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-family: var(--mono);
+  margin: 12px 0 3px;
+}
+.detail-tasklist-section:first-child {
+  margin-top: 2px;
+}
+.detail-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.detail-task-mark {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 11px;
+  text-align: center;
+  color: transparent;
+}
+.detail-task.done .detail-task-mark {
+  color: var(--c-done);
+  border-color: var(--c-done);
+}
+.detail-task-text {
+  /* long task lines wrap instead of overflowing the panel */
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.detail-task.done .detail-task-text {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
 /* server detail */
 .detail-live {
   display: flex;

@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import type { TaskGroup } from "./types.js";
 
 const execFileP = promisify(execFile);
 
@@ -102,6 +103,24 @@ export class OpenSpecClient {
   }
 
   /**
+   * The change's task list, parsed directly from `tasks.md` (the CLI exposes
+   * only counts, not task text). Sections come from `## …` headings; items from
+   * `- [ ]` / `- [x]` bullets. Tolerant by design: a missing/unreadable file
+   * yields `[]`, bullets before any heading fall under a single untitled group,
+   * and non-bullet lines are ignored so a minimal or malformed file never throws.
+   */
+  async readTasks(name: string): Promise<TaskGroup[]> {
+    const path = join(this.openspecDir(), "changes", name, "tasks.md");
+    let text: string;
+    try {
+      text = await readFile(path, "utf8");
+    } catch {
+      return [];
+    }
+    return parseTasks(text);
+  }
+
+  /**
    * Whether the proposal declares a `## Depends On` section at all — even an
    * empty one. Distinct from {@link readProposalDependsOn}, which reports the
    * entries: a present-but-empty section means "reviewed, depends on nothing".
@@ -156,6 +175,37 @@ function dependsOnInSection(text: string): string[] {
   let mm: RegExpExecArray | null;
   while ((mm = bullet.exec(m[1])) !== null) out.push(mm[1]);
   return out;
+}
+
+/** A `## …` task section heading. */
+const TASK_HEADING = /^##\s+(.+?)\s*$/;
+/** A task bullet: `- [ ]` / `- [x]`, capturing the checkbox char and the remainder. */
+const TASK_BULLET = /^\s*-\s*\[([ xX])\]\s*(.*)$/;
+
+/**
+ * Parse `tasks.md` into ordered sections of `{ text, done }` items. Bullets
+ * before the first heading fall under a single untitled leading group; headings
+ * with no items and every non-bullet line are dropped so nothing extraneous shows.
+ */
+function parseTasks(text: string): TaskGroup[] {
+  const groups: TaskGroup[] = [];
+  let current: TaskGroup | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const heading = TASK_HEADING.exec(line);
+    if (heading) {
+      current = { section: heading[1], items: [] };
+      groups.push(current);
+      continue;
+    }
+    const bullet = TASK_BULLET.exec(line);
+    if (!bullet) continue; // ignore prose, blank lines, sub-headings
+    if (!current) {
+      current = { section: "", items: [] }; // bullets before any heading
+      groups.push(current);
+    }
+    current.items.push({ text: bullet[2].trim(), done: bullet[1].toLowerCase() === "x" });
+  }
+  return groups.filter((g) => g.items.length > 0);
 }
 
 /** Extract `- \`cap-name\`: ...` bullets under a `### <heading>` block. */

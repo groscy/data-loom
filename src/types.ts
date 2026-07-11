@@ -12,6 +12,18 @@ export type Readiness = "ready" | "blocked" | "done";
  */
 export type DependencyReview = "pending" | "declared";
 
+/** One task item from a change's `tasks.md` bullet (`- [ ]` / `- [x]`). */
+export interface TaskItem {
+  text: string;
+  done: boolean;
+}
+
+/** A `## …` section of `tasks.md` with the items beneath it. */
+export interface TaskGroup {
+  section: string;
+  items: TaskItem[];
+}
+
 /** One roadmap node = one OpenSpec change. */
 export interface ChangeNode {
   name: string;
@@ -31,6 +43,8 @@ export interface ChangeNode {
   archived: boolean;
   completedTasks: number;
   totalTasks: number;
+  /** Structured, section-grouped task list from `tasks.md`. `[]` for archived changes and changes with no `tasks.md`. */
+  tasks: TaskGroup[];
 }
 
 export interface Phase {
