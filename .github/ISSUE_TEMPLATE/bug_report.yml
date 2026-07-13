@@ -1,0 +1,72 @@
+name: Bug report
+description: Something in DataLoom isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! For **security issues**, do not file here — see
+        [SECURITY.md](https://github.com/groscy/data-loom/blob/master/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+      placeholder: When I run `data-loom up`, …
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The commands you ran and what you did in the dashboard.
+      placeholder: |
+        1. `npx @lyric_dev/data-loom "C:\path\to\project"`
+        2. Open http://127.0.0.1:4317
+        3. Click …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: DataLoom version
+      description: Output of `data-loom --version`, or the package version you installed.
+      placeholder: "0.9.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      description: Output of `node --version` (DataLoom requires ≥ 20).
+      placeholder: "v22.5.0"
+    validations:
+      required: true
+  - type: input
+    id: openspec
+    attributes:
+      label: OpenSpec CLI version
+      description: Output of `openspec --version` (DataLoom invokes your installed CLI).
+      placeholder: "e.g. 0.5.0"
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Daemon log output if relevant (path shown by `data-loom status`). This is
+        automatically formatted as code, so no backticks needed.
+      render: shell
+    validations:
+      required: false

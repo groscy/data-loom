@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest an idea or improvement for DataLoom
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        DataLoom is developed spec-first with OpenSpec. A clear problem statement
+        helps turn this into a proposal — see
+        [CONTRIBUTING.md](https://github.com/groscy/data-loom/blob/master/CONTRIBUTING.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do, and where does DataLoom get in the way today?
+      placeholder: When planning dependencies across many proposals, I can't …
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to happen? How should it behave?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you've thought about.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of DataLoom does this touch?
+      options:
+        - Roadmap view
+        - MCP topology view
+        - Daemon / CLI (start, autostart, up, update)
+        - MCP server / weave workflow
+        - Other
+    validations:
+      required: false
