@@ -236,7 +236,9 @@ function copyToClipboard(text: string): void {
   try {
     const proc =
       process.platform === "win32"
-        ? spawn("clip")
+        ? // windowsHide: clip.exe is a console app; without it the headless
+          // daemon flashes a console window when copying from the tray menu.
+          spawn("clip", [], { windowsHide: true })
         : process.platform === "darwin"
           ? spawn("pbcopy")
           : spawn("xclip", ["-selection", "clipboard"]);

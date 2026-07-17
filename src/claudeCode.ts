@@ -34,9 +34,13 @@ export interface ConnectResult {
   switchedFrom?: RegistrationForm;
 }
 
-/** On Windows the CLI is a `.cmd`/`.ps1` shim, so it must be invoked through a shell. */
+/**
+ * On Windows the CLI is a `.cmd`/`.ps1` shim, so it must be invoked through a
+ * shell; `windowsHide` stops that shell's console window from flashing to the
+ * foreground and stealing focus when the daemon runs headless.
+ */
 function runClaude(args: string[]): Promise<{ stdout: string; stderr: string }> {
-  return execFileP("claude", args, { shell: process.platform === "win32" });
+  return execFileP("claude", args, { shell: process.platform === "win32", windowsHide: true });
 }
 
 /** The registration command a user can run by hand when the `claude` CLI is absent. */

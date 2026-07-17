@@ -34,11 +34,18 @@ export class OpenSpecClient {
     return join(this.repoRoot, "openspec");
   }
 
-  /** On Windows the CLI is a `.cmd` shim, so it must be invoked through a shell. */
+  /**
+   * On Windows the CLI is a `.cmd` shim, so it must be invoked through a shell.
+   * `windowsHide` keeps that shell's console window from flashing to the
+   * foreground and stealing focus each time — the daemon runs headless
+   * (detached / autostart, with no console of its own), so without this Windows
+   * allocates a fresh, visible console for every invocation.
+   */
   private async run(args: string[]): Promise<string> {
     const { stdout } = await execFileP("openspec", args, {
       cwd: this.repoRoot,
       shell: process.platform === "win32",
+      windowsHide: true,
       maxBuffer: 16 * 1024 * 1024,
     });
     return stdout;
