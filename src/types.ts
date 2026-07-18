@@ -52,6 +52,81 @@ export interface Phase {
   changeNames: string[];
 }
 
+// ── System Atlas ────────────────────────────────────────────────────────────
+// A second, derived view of the same workspace: the settled system as
+// Arc42-flavored living documentation. Assembled from `specs/` (structure),
+// `config.yaml` (overview), and `changes/archive/` (decisions + provenance).
+// Purely derived and read-only, like the roadmap — nothing is stored.
+
+/** A change that touched something, with its archive date (`YYYY-MM-DD`). */
+export interface AtlasProvenanceRef {
+  change: string;
+  date: string;
+}
+
+/** Where a capability or requirement came from: one introduction + later edits. */
+export interface AtlasProvenance {
+  /** The change that introduced it (ADDED). `null` if no archived change matches. */
+  introduced: AtlasProvenanceRef | null;
+  /** Later changes that modified it (MODIFIED), in chronological order. */
+  modified: AtlasProvenanceRef[];
+}
+
+/** One behavior scenario within a requirement (the `#### Scenario:` block). */
+export interface AtlasScenario {
+  title: string;
+  /** The scenario body (WHEN/THEN markdown), rendered client-side. */
+  body: string;
+}
+
+/** One requirement within a capability, with its behavior and provenance. */
+export interface AtlasRequirement {
+  title: string;
+  /** Normative prose (the SHALL text) between the heading and its scenarios. */
+  text: string;
+  scenarios: AtlasScenario[];
+  provenance: AtlasProvenance;
+}
+
+/** One building block = one settled capability under `specs/`. */
+export interface AtlasBuildingBlock {
+  name: string;
+  requirements: AtlasRequirement[];
+  provenance: AtlasProvenance;
+}
+
+/** A domain group of building blocks (shared name prefix; singletons stand alone). */
+export interface AtlasGroup {
+  /** Shared prefix for a multi-member group, or the capability's own name for a singleton. */
+  key: string;
+  /** True when the group is a lone capability (no shared prefix) — render without a group heading. */
+  singleton: boolean;
+  blocks: AtlasBuildingBlock[];
+}
+
+/** A shaping decision: one archived change's rationale (proposal Why + design.md). */
+export interface AtlasDecision {
+  change: string;
+  date: string;
+  /** The proposal's `## Why` prose (may be empty). */
+  why: string;
+  /** The change's `design.md` content (may be empty when the change had none). */
+  design: string;
+  /** Capabilities this change added or modified — for attributing it to a block. */
+  capabilities: string[];
+}
+
+/** The complete, derived architecture atlas pushed to the browser. */
+export interface AtlasModel {
+  generatedAt: string;
+  /** Overview narrative from the project's `openspec/config.yaml` context (may be empty). */
+  overview: string;
+  /** Building blocks grouped by the project's own domain. */
+  groups: AtlasGroup[];
+  /** All shaping changes, newest first — the global Decisions section and per-block join source. */
+  decisions: AtlasDecision[];
+}
+
 /** A surfaced ordering problem: a dependency cycle or a dangling/out-of-order dep. */
 export interface Conflict {
   type: "cycle" | "dangling";

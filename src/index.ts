@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { OpenSpecClient } from "./openspecClient.js";
 import { deriveModel } from "./derive.js";
+import { deriveAtlas } from "./atlas.js";
 import { watchOpenspec } from "./watcher.js";
 import { startServer, type RunningServer } from "./server.js";
 import { discover } from "./mcp/discovery.js";
@@ -22,7 +23,7 @@ import { runShim } from "./mcpShim.js";
 import { refreshWeaveAliasIfOutdated } from "./weaveAlias.js";
 import { VERSION } from "./version.js";
 import { initTray, type Tray } from "./tray.js";
-import type { RoadmapModel } from "./types.js";
+import type { RoadmapModel, AtlasModel } from "./types.js";
 import type { McpModel, McpServer, ProbeTarget } from "./mcp/types.js";
 
 const host = HOST;
@@ -35,6 +36,7 @@ interface Session {
   project: string;
   client: OpenSpecClient;
   model: RoadmapModel;
+  atlas: AtlasModel;
   mcpServers: McpServer[];
   probes: Map<string, ProbeTarget>;
   stopWatch: () => void;
@@ -89,6 +91,7 @@ async function main(): Promise<void> {
       host,
       port,
       getRoadmap: () => session?.model ?? null,
+      getAtlas: () => session?.atlas ?? null,
       getMcp,
       checkMcp,
       getProjects,
@@ -151,7 +154,7 @@ async function main(): Promise<void> {
 
 async function buildSession(project: string): Promise<Session> {
   const client = new OpenSpecClient(project);
-  const model = await deriveModel(client);
+  const [model, atlas] = await Promise.all([deriveModel(client), deriveAtlas(client)]);
   let mcpServers: McpServer[] = [];
   let probes = new Map<string, ProbeTarget>();
   try {
@@ -163,15 +166,23 @@ async function buildSession(project: string): Promise<Session> {
   }
   const stopWatch = watchOpenspec(project, () => recompute());
   console.log(`[data-loom] loaded ${model.changes.filter((c) => !c.archived).length} change(s), ${mcpServers.length} MCP server(s)`);
-  return { project, client, model, mcpServers, probes, stopWatch };
+  return { project, client, model, atlas, mcpServers, probes, stopWatch };
 }
 
 async function recompute(): Promise<void> {
   if (!session) return;
   try {
-    session.model = await deriveModel(session.client);
-    server?.broadcast({ type: "model", model: session.model });
-    console.log(`[data-loom] roadmap recomputed — ${session.model.phases.length} phase(s)`);
+    // The recursive openspec/ watcher fires for specs/, changes/archive/, and
+    // config.yaml alike, so both derivations recompute together on any edit.
+    const [model, atlas] = await Promise.all([
+      deriveModel(session.client),
+      deriveAtlas(session.client),
+    ]);
+    session.model = model;
+    session.atlas = atlas;
+    server?.broadcast({ type: "model", model });
+    server?.broadcast({ type: "atlas", atlas });
+    console.log(`[data-loom] recomputed — ${model.phases.length} phase(s), ${atlas.groups.length} atlas group(s)`);
   } catch (err) {
     console.error("[data-loom] derivation failed:", err);
   }
@@ -187,6 +198,7 @@ async function selectProject(path: string): Promise<ProjectModel> {
   const projects = await getProjects();
   server?.broadcast({ type: "project", project: projects });
   server?.broadcast({ type: "model", model: session.model });
+  server?.broadcast({ type: "atlas", atlas: session.atlas });
   server?.broadcast({ type: "mcp", mcp: getMcp() });
   console.log(`[data-loom] switched project -> ${target}`);
   return projects;

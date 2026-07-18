@@ -15,10 +15,12 @@ const projectSelect = document.getElementById("project-select");
 const themeToggle = document.getElementById("theme-toggle");
 const topoNodes = document.getElementById("topo-nodes");
 const spokesSvg = document.getElementById("spokes");
+const atlasBody = document.getElementById("atlas-body");
 
 // ── client state ──
 let projects = null;
 let model = null;
+let atlas = null;
 let mcpModel = null;
 let activeTab = "roadmap";
 let scopeFilter = "all";
@@ -97,6 +99,8 @@ function setProjects(p) {
     doneBand.classList.add("hidden");
     conflictsEl.classList.add("hidden");
     reviewEl.classList.add("hidden");
+    atlas = null;
+    renderAtlas();
   }
 }
 
@@ -123,6 +127,7 @@ function connect() {
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === "model") render(msg.model);
+      else if (msg.type === "atlas") setAtlas(msg.atlas);
       else if (msg.type === "mcp") setMcp(msg.mcp);
       else if (msg.type === "mcpServer") updateMcpServer(msg.server);
       else if (msg.type === "project") setProjects(msg.project);
@@ -707,6 +712,306 @@ function changeAction(c) {
     return { kind: "apply", label: "Apply", command: "/opsx:apply " + c.name };
   }
   return null;
+}
+
+// ═══════════════ SYSTEM ATLAS ═══════════════
+// The settled system as Arc42-flavored documentation, derived by the daemon and
+// pushed like the roadmap. Strictly read-only: it renders each requirement's
+// provenance but offers no control that edits a spec or proposal.
+
+function setAtlas(a) {
+  atlas = a;
+  renderAtlas();
+}
+
+function renderAtlas() {
+  atlasBody.innerHTML = "";
+  if (!atlas || (!atlas.overview && !(atlas.groups && atlas.groups.length))) {
+    const msg =
+      projects && projects.current
+        ? "No settled capabilities yet — the atlas fills in as changes are archived."
+        : "Select a project above to begin.";
+    atlasBody.appendChild(el("div", "empty-state", msg));
+    return;
+  }
+
+  // Overview (config.yaml context) — a populated section only when present.
+  if (atlas.overview) {
+    const ov = el("section", "atlas-overview");
+    ov.appendChild(el("div", "atlas-kicker", "Overview"));
+    ov.appendChild(renderMarkdown(atlas.overview));
+    atlasBody.appendChild(ov);
+  }
+
+  // Building blocks, grouped by the project's own domain (from the model).
+  if (atlas.groups && atlas.groups.length) {
+    const blocks = el("section", "atlas-blocks");
+    blocks.appendChild(el("div", "atlas-kicker", "Building blocks"));
+    for (const g of atlas.groups) {
+      const group = el("div", "atlas-group");
+      if (!g.singleton) {
+        const gh = el("div", "atlas-group-head");
+        gh.appendChild(el("span", "atlas-group-key", g.key));
+        gh.appendChild(el("span", "atlas-group-count", g.blocks.length + " capabilities"));
+        group.appendChild(gh);
+      }
+      for (const b of g.blocks) group.appendChild(renderBlock(b));
+      blocks.appendChild(group);
+    }
+    atlasBody.appendChild(blocks);
+  }
+
+  // Decisions & rationale — a global, chronological view (newest first). Absent
+  // when there is no archive to draw from.
+  if (atlas.decisions && atlas.decisions.length) {
+    const dec = el("section", "atlas-decisions");
+    dec.appendChild(el("div", "atlas-kicker", "Decisions & rationale"));
+    for (const d of atlas.decisions) dec.appendChild(decisionEntry(d, false));
+    atlasBody.appendChild(dec);
+  }
+}
+
+function renderBlock(b) {
+  const block = el("div", "atlas-block");
+  block.id = "atlas-cap-" + b.name;
+
+  const head = el("div", "atlas-block-head");
+  head.appendChild(el("span", "atlas-block-name", b.name));
+  head.appendChild(provChips(b.provenance));
+  block.appendChild(head);
+
+  // Density-adaptive: a small capability opens fully; a large one stays a
+  // scannable outline of requirement titles that expand on demand.
+  const openByDefault = b.requirements.length <= 2;
+
+  const reqs = el("div", "atlas-reqs");
+  if (!b.requirements.length) reqs.appendChild(el("div", "atlas-none", "No requirements captured."));
+  for (const r of b.requirements) {
+    const d = el("details", "atlas-req");
+    if (openByDefault) d.open = true;
+    const sum = el("summary", "atlas-req-sum");
+    sum.appendChild(el("span", "atlas-req-title", r.title));
+    const last = lastTouch(r.provenance);
+    if (last) {
+      const changed = r.provenance.modified && r.provenance.modified.length > 0;
+      const chip = el("span", "atlas-req-prov " + (changed ? "mod" : "new"), (changed ? "changed " : "new ") + (last.date || ""));
+      chip.title = "shaped by " + last.change + " — open the rationale";
+      chip.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        scrollToDecision(last.change);
+      });
+      sum.appendChild(chip);
+    }
+    d.appendChild(sum);
+    lazyBody(d, () => buildReqBody(r), openByDefault);
+    reqs.appendChild(d);
+  }
+  block.appendChild(reqs);
+
+  // Per-capability shaping history: the changes that shaped this block, newest
+  // first, each expandable to its rationale.
+  const shaping = shapingFor(b);
+  if (shaping.length) {
+    const sh = el("details", "atlas-shaping");
+    sh.appendChild(el("summary", "atlas-shaping-sum", "Shaping decisions & history · " + shaping.length));
+    for (const d of shaping) sh.appendChild(decisionEntry(d, true));
+    block.appendChild(sh);
+  }
+  return block;
+}
+
+/** A requirement's expanded body: its normative prose + behavior scenarios. */
+function buildReqBody(r) {
+  const body = el("div", "atlas-req-body");
+  if (r.text) body.appendChild(renderMarkdown(r.text));
+  if (r.scenarios && r.scenarios.length) {
+    const sc = el("div", "atlas-scenarios");
+    sc.appendChild(el("div", "atlas-scenarios-head", r.scenarios.length + " behavior" + (r.scenarios.length > 1 ? "s" : "")));
+    for (const s of r.scenarios) {
+      const item = el("div", "atlas-scenario");
+      item.appendChild(el("div", "atlas-scenario-title", s.title));
+      item.appendChild(renderMarkdown(s.body));
+      sc.appendChild(item);
+    }
+    body.appendChild(sc);
+  }
+  return body;
+}
+
+/** The decisions that introduced/modified this block's capability or any requirement, newest first. */
+function shapingFor(b) {
+  const names = new Set();
+  const add = (p) => {
+    if (!p) return;
+    if (p.introduced) names.add(p.introduced.change);
+    for (const m of p.modified || []) names.add(m.change);
+  };
+  add(b.provenance);
+  for (const r of b.requirements) add(r.provenance);
+  return (atlas.decisions || []).filter((d) => names.has(d.change));
+}
+
+function decisionEntry(d, nested) {
+  const det = el("details", "atlas-decision" + (nested ? " nested" : ""));
+  if (!nested) det.id = "atlas-change-" + d.change; // the global entry owns the anchor
+  const sum = el("summary", "atlas-decision-sum");
+  sum.appendChild(el("span", "atlas-decision-date", d.date || "—"));
+  sum.appendChild(el("span", "atlas-decision-change", d.change));
+  det.appendChild(sum);
+  // Rationale (whole design.md) is heavy; build it only when first opened.
+  lazyBody(det, () => {
+    const body = el("div", "atlas-decision-body");
+    if (d.why) {
+      body.appendChild(el("div", "atlas-decision-label", "Why"));
+      body.appendChild(renderMarkdown(d.why));
+    }
+    if (d.design) {
+      body.appendChild(el("div", "atlas-decision-label", "Design"));
+      body.appendChild(renderMarkdown(d.design));
+    }
+    if (!d.why && !d.design) body.appendChild(el("div", "atlas-none", "No recorded rationale."));
+    return body;
+  });
+  return det;
+}
+
+// Build a <details>'s body on first open (or eagerly when it starts open), so a
+// page full of collapsed sections stays light until the reader expands one.
+function lazyBody(details, build, eager) {
+  if (eager) {
+    details.appendChild(build());
+    return;
+  }
+  let built = false;
+  details.addEventListener("toggle", () => {
+    if (details.open && !built) {
+      built = true;
+      details.appendChild(build());
+    }
+  });
+}
+
+/** The latest touch (last modification, else introduction) of a provenance record. */
+function lastTouch(p) {
+  if (!p) return null;
+  if (p.modified && p.modified.length) return p.modified[p.modified.length - 1];
+  return p.introduced;
+}
+
+/** "introduced <date> · changed <date>" chips, each linking to its shaping change. */
+function provChips(p) {
+  const wrap = el("span", "atlas-prov");
+  if (p && p.introduced) wrap.appendChild(provRef("new", "introduced", p.introduced));
+  const last = p && p.modified && p.modified.length ? p.modified[p.modified.length - 1] : null;
+  if (last) wrap.appendChild(provRef("mod", "changed", last));
+  return wrap;
+}
+function provRef(kind, label, ref) {
+  const a = el("a", "atlas-prov-ref " + kind);
+  a.href = "#atlas-change-" + ref.change;
+  a.title = "shaped by " + ref.change;
+  a.appendChild(el("span", "atlas-prov-lab", label));
+  a.appendChild(el("span", "atlas-prov-date", ref.date || "—"));
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    scrollToDecision(ref.change);
+  });
+  return a;
+}
+function scrollToDecision(change) {
+  const t = document.getElementById("atlas-change-" + change);
+  if (!t) return;
+  t.open = true;
+  t.scrollIntoView({ behavior: "smooth", block: "center" });
+  t.classList.add("flash");
+  setTimeout(() => t.classList.remove("flash"), 1200);
+}
+
+// ── minimal, dependency-free markdown (the constrained spec/proposal subset) ──
+// Handles headings, bullet lists, fenced code, **bold** and `code`. Builds DOM
+// via text nodes / elements only — never innerHTML — so prose can't inject markup.
+function renderMarkdown(md) {
+  const root = el("div", "md");
+  let para = [];
+  let items = null; // buffered list-item text (built at flush so continuations attach)
+  let code = null;
+  const flushPara = () => {
+    if (para.length) {
+      const p = el("p");
+      applyInline(p, para.join(" "));
+      root.appendChild(p);
+      para = [];
+    }
+  };
+  const flushList = () => {
+    if (items) {
+      const ul = el("ul", "md-ul");
+      for (const t of items) applyInline(ul.appendChild(el("li")), t);
+      root.appendChild(ul);
+      items = null;
+    }
+  };
+  for (const raw of String(md == null ? "" : md).split(/\r?\n/)) {
+    if (code !== null) {
+      if (/^```/.test(raw)) {
+        root.appendChild(code);
+        code = null;
+      } else {
+        code.firstChild.appendChild(document.createTextNode(raw + "\n"));
+      }
+      continue;
+    }
+    if (/^```/.test(raw)) {
+      flushPara();
+      flushList();
+      code = el("pre", "md-pre");
+      code.appendChild(el("code"));
+      continue;
+    }
+    const h = /^(#{1,6})\s+(.*)$/.exec(raw);
+    if (h) {
+      flushPara();
+      flushList();
+      applyInline(root.appendChild(el("div", "md-h md-h" + Math.min(3, h[1].length))), h[2]);
+      continue;
+    }
+    const b = /^\s*[-*]\s+(.*)$/.exec(raw);
+    if (b) {
+      flushPara();
+      if (!items) items = [];
+      items.push(b[1]);
+      continue;
+    }
+    if (raw.trim() === "") {
+      flushPara();
+      flushList();
+      continue;
+    }
+    // An indented line under a bullet is that item's continuation, not a new block.
+    if (items && /^\s/.test(raw)) {
+      items[items.length - 1] += " " + raw.trim();
+      continue;
+    }
+    para.push(raw.trim());
+  }
+  flushPara();
+  flushList();
+  if (code) root.appendChild(code);
+  return root;
+}
+
+function applyInline(parent, text) {
+  const re = /`([^`]+)`|\*\*([^*]+)\*\*/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
+    if (m[1] != null) parent.appendChild(el("code", "md-code", m[1]));
+    else parent.appendChild(el("strong", null, m[2]));
+    last = re.lastIndex;
+  }
+  if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
 }
 
 // ═══════════════ helpers ═══════════════

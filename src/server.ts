@@ -9,7 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { loadAsset } from "./assets.js";
 import { createMcpServer } from "./mcpServer.js";
-import type { RoadmapModel } from "./types.js";
+import type { RoadmapModel, AtlasModel } from "./types.js";
 import type { McpModel, McpServer } from "./mcp/types.js";
 import type { ProjectModel } from "./projects.js";
 
@@ -32,6 +32,7 @@ export async function startServer(opts: {
   host: string;
   port: number;
   getRoadmap: () => RoadmapModel | null;
+  getAtlas: () => AtlasModel | null;
   getMcp: () => McpModel;
   checkMcp: (name: string) => Promise<McpServer | null>;
   getProjects: () => Promise<ProjectModel>;
@@ -47,7 +48,7 @@ export async function startServer(opts: {
    */
   onShutdown?: () => void;
 }): Promise<RunningServer> {
-  const { publicDir, host, port, getRoadmap, getMcp, checkMcp, getProjects, selectProject, getCurrentProject, onShutdown } = opts;
+  const { publicDir, host, port, getRoadmap, getAtlas, getMcp, checkMcp, getProjects, selectProject, getCurrentProject, onShutdown } = opts;
 
   let wss: WebSocketServer;
   const broadcast = (msg: unknown): void => {
@@ -176,6 +177,7 @@ export async function startServer(opts: {
       if (url.pathname === "/mcp") return handleMcp(req, res);
 
       if (url.pathname === "/api/model") return sendJson(res, getRoadmap());
+      if (url.pathname === "/api/atlas") return sendJson(res, getAtlas());
       if (url.pathname === "/api/mcp") return sendJson(res, getMcp());
       if (url.pathname === "/api/projects") return sendJson(res, await getProjects());
 
@@ -237,6 +239,8 @@ export async function startServer(opts: {
   wss.on("connection", async (ws) => {
     const roadmap = getRoadmap();
     if (roadmap) ws.send(JSON.stringify({ type: "model", model: roadmap }));
+    const atlas = getAtlas();
+    if (atlas) ws.send(JSON.stringify({ type: "atlas", atlas }));
     ws.send(JSON.stringify({ type: "mcp", mcp: getMcp() }));
     try {
       ws.send(JSON.stringify({ type: "project", project: await getProjects() }));
