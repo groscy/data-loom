@@ -21,6 +21,7 @@ const atlasBody = document.getElementById("atlas-body");
 let projects = null;
 let model = null;
 let atlas = null;
+let atlasSeenBaseline = null; // ms cursor: "changed since" is measured against this
 let mcpModel = null;
 let activeTab = "roadmap";
 let scopeFilter = "all";
@@ -63,9 +64,16 @@ function syncTabs() {
 }
 for (const btn of document.querySelectorAll(".tab[data-tab]")) {
   btn.addEventListener("click", () => {
+    const prev = activeTab;
     activeTab = btn.dataset.tab;
     closeDetail();
     syncTabs();
+    // Entering the atlas captures the "since last visit" baseline and advances
+    // the persisted cursor, so this visit's marks clear on the next one.
+    if (activeTab === "atlas" && prev !== "atlas") {
+      enterAtlas();
+      renderAtlas();
+    }
   });
 }
 
@@ -724,6 +732,92 @@ function setAtlas(a) {
   renderAtlas();
 }
 
+// ── recency overlay: "changed since your last visit" ──
+// Per-viewer UI state, persisted client-side per project — never written to the
+// workspace. The daemon supplies the provenance dates; the browser owns the cursor.
+function atlasSeenKey() {
+  return "dataloom-atlas-seen:" + ((projects && projects.current) || "");
+}
+function getStoredSeen() {
+  const v = localStorage.getItem(atlasSeenKey());
+  return v == null ? null : Number(v);
+}
+function setStoredSeen(ts) {
+  try {
+    localStorage.setItem(atlasSeenKey(), String(ts));
+  } catch (e) {
+    /* storage unavailable — the overlay simply won't persist */
+  }
+}
+// Establish the marking baseline as the atlas is entered, then advance the
+// persisted cursor to now — so what is seen this visit clears on reload.
+function enterAtlas() {
+  const stored = getStoredSeen();
+  atlasSeenBaseline = stored == null ? Date.now() : stored; // first visit → now (nothing stale)
+  setStoredSeen(Date.now());
+}
+// Archive dates are day-granular; treat one as its start-of-day instant and mark
+// it when that instant is past the cursor (a single rule → no off-by-a-day flicker).
+function afterSeen(date) {
+  if (atlasSeenBaseline == null || !date) return false;
+  const t = Date.parse(date + "T00:00:00");
+  return !isNaN(t) && t > atlasSeenBaseline;
+}
+// null | "new" (introduced since the last visit) | "mod" (modified since).
+function markOf(prov) {
+  if (!prov) return null;
+  if (prov.introduced && afterSeen(prov.introduced.date)) return "new";
+  if (prov.modified && prov.modified.some((m) => afterSeen(m.date))) return "mod";
+  return null;
+}
+// A block is "new" when the whole capability arrived since the last visit, else
+// "mod" when it or any of its requirements changed since.
+function blockMark(b) {
+  const cm = markOf(b.provenance);
+  if (cm) return cm;
+  for (const r of b.requirements) if (markOf(r.provenance)) return "mod";
+  return null;
+}
+function markAllRead() {
+  atlasSeenBaseline = Date.now();
+  setStoredSeen(atlasSeenBaseline);
+  renderAtlas();
+}
+function sinceDot(kind) {
+  const s = el("span", "atlas-since " + kind, kind === "new" ? "new" : "changed");
+  s.title = "Since your last visit";
+  return s;
+}
+function scrollToBlock(name) {
+  const t = document.getElementById("atlas-cap-" + name);
+  if (!t) return;
+  t.scrollIntoView({ behavior: "smooth", block: "start" });
+  t.classList.add("flash");
+  setTimeout(() => t.classList.remove("flash"), 1200);
+}
+// "N changed since your last visit" + jump chips + mark-all-read.
+function recencyBar(changed) {
+  const bar = el("div", "atlas-recency");
+  const head = el("div", "atlas-recency-head");
+  head.appendChild(el("span", "atlas-recency-count", changed.length + " changed since your last visit"));
+  const clear = el("button", "atlas-recency-clear", "mark all read");
+  clear.addEventListener("click", markAllRead);
+  head.appendChild(clear);
+  bar.appendChild(head);
+  const chips = el("div", "atlas-recency-chips");
+  for (const c of changed) {
+    const chip = el("a", "atlas-recency-chip " + c.kind, c.name);
+    chip.href = "#atlas-cap-" + c.name;
+    chip.addEventListener("click", (e) => {
+      e.preventDefault();
+      scrollToBlock(c.name);
+    });
+    chips.appendChild(chip);
+  }
+  bar.appendChild(chips);
+  return bar;
+}
+
 function renderAtlas() {
   atlasBody.innerHTML = "";
   if (!atlas || (!atlas.overview && !(atlas.groups && atlas.groups.length))) {
@@ -734,6 +828,17 @@ function renderAtlas() {
     atlasBody.appendChild(el("div", "empty-state", msg));
     return;
   }
+
+  // Recency overlay: what changed since the viewer's last visit (see the tab
+  // handler / enterAtlas for the baseline). Absent → no bar, no marks.
+  const changed = [];
+  for (const g of atlas.groups || []) {
+    for (const b of g.blocks) {
+      const m = blockMark(b);
+      if (m) changed.push({ name: b.name, kind: m });
+    }
+  }
+  if (changed.length) atlasBody.appendChild(recencyBar(changed));
 
   // Overview (config.yaml context) — a populated section only when present.
   if (atlas.overview) {
@@ -775,8 +880,13 @@ function renderBlock(b) {
   const block = el("div", "atlas-block");
   block.id = "atlas-cap-" + b.name;
 
+  const bmark = blockMark(b);
+  if (bmark) block.classList.add("changed");
   const head = el("div", "atlas-block-head");
-  head.appendChild(el("span", "atlas-block-name", b.name));
+  const left = el("span", "atlas-block-headleft");
+  left.appendChild(el("span", "atlas-block-name", b.name));
+  if (bmark) left.appendChild(sinceDot(bmark));
+  head.appendChild(left);
   head.appendChild(provChips(b.provenance));
   block.appendChild(head);
 
@@ -787,10 +897,14 @@ function renderBlock(b) {
   const reqs = el("div", "atlas-reqs");
   if (!b.requirements.length) reqs.appendChild(el("div", "atlas-none", "No requirements captured."));
   for (const r of b.requirements) {
-    const d = el("details", "atlas-req");
-    if (openByDefault) d.open = true;
+    const rmark = markOf(r.provenance);
+    const d = el("details", "atlas-req" + (rmark ? " changed" : ""));
+    if (openByDefault || rmark) d.open = true; // recency-driven disclosure
     const sum = el("summary", "atlas-req-sum");
-    sum.appendChild(el("span", "atlas-req-title", r.title));
+    const left = el("span", "atlas-req-left");
+    if (rmark) left.appendChild(sinceDot(rmark));
+    left.appendChild(el("span", "atlas-req-title", r.title));
+    sum.appendChild(left);
     const last = lastTouch(r.provenance);
     if (last) {
       const changed = r.provenance.modified && r.provenance.modified.length > 0;
@@ -804,7 +918,7 @@ function renderBlock(b) {
       sum.appendChild(chip);
     }
     d.appendChild(sum);
-    lazyBody(d, () => buildReqBody(r), openByDefault);
+    lazyBody(d, () => buildReqBody(r), openByDefault || !!rmark);
     reqs.appendChild(d);
   }
   block.appendChild(reqs);

@@ -1354,3 +1354,116 @@ main {
   padding: 0;
   white-space: pre;
 }
+
+/* ===== Atlas recency overlay ("changed since your last visit") ===== */
+.atlas-recency {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-bd);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin: 16px 0 4px;
+}
+.atlas-recency-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.atlas-recency-count {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent);
+}
+.atlas-recency-count::before {
+  content: "▲";
+  margin-right: 8px;
+  font-size: 10px;
+}
+.atlas-recency-clear {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+.atlas-recency-clear:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.atlas-recency-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.atlas-recency-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-decoration: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border2);
+  background: var(--panel);
+  color: var(--muted);
+}
+.atlas-recency-chip::before {
+  content: "● ";
+}
+.atlas-recency-chip.new {
+  color: var(--c-done);
+}
+.atlas-recency-chip.mod {
+  color: var(--c-progress);
+}
+.atlas-recency-chip:hover {
+  border-color: var(--accent);
+}
+
+/* the "new"/"changed" badge next to a marked capability or requirement */
+.atlas-since {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.atlas-since::before {
+  content: "● ";
+  font-size: 0.85em;
+}
+.atlas-since.new {
+  color: var(--on-accent);
+  background: var(--c-done);
+}
+.atlas-since.mod {
+  color: var(--on-accent);
+  background: var(--c-progress);
+}
+
+.atlas-block-headleft,
+.atlas-req-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.atlas-req-left {
+  gap: 8px;
+}
+.atlas-block.changed {
+  border-left: 3px solid var(--accent);
+}
+.atlas-req.changed > .atlas-req-sum {
+  background: var(--accent-soft);
+  border-radius: 6px;
+}
+.atlas-block.flash {
+  animation: atlas-flash 1.2s ease;
+}
