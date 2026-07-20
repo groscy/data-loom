@@ -290,15 +290,36 @@ main {
 #roadmap {
   padding: 20px 22px 28px;
 }
+/* The roadmap fills the viewport as a column: banners keep their natural height,
+   the canvas takes the rest. `min-height: 0` lets the canvas actually shrink —
+   without it a flex item refuses to go below its content size and overflows. */
+#roadmap.active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
 
 .board-wrap {
   position: relative;
-  overflow-x: auto; /* wide roadmaps (many phases) pan horizontally; banners above stay fixed */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden; /* a clipping viewport: navigation is pan/zoom/minimap, never a scrollbar */
+  touch-action: none; /* we own the gestures; without this the browser scrolls the page */
+  cursor: grab;
+  outline: none;
+}
+.board-wrap.dragging {
+  cursor: grabbing;
+}
+.board-wrap:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .board {
   position: relative;
   height: 600px; /* width + height are set from JS per phase/card count */
-  margin: 0 auto; /* centers when it fits; collapses to 0 when it overflows and scrolls */
+  transform-origin: 0 0; /* pan/zoom transform is applied from the canvas origin */
 }
 .edges {
   position: absolute;
@@ -432,46 +453,87 @@ main {
   text-align: center;
 }
 
-/* Done band */
-.doneband {
-  margin-top: 22px;
-  border-top: 1px dashed var(--border2);
-  padding-top: 14px;
-}
-.doneband.hidden {
-  display: none;
-}
-.doneband-head {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 11px;
-  cursor: pointer;
-  user-select: none;
-}
-.doneband-items {
+/* ===== Canvas navigation: controls + minimap =====
+   Both sit bottom-LEFT: the detail panel is fixed to the right of the viewport
+   and would cover anything parked in that corner. */
+.canvas-controls {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 9px;
+  gap: 5px;
+  z-index: 4;
 }
-.doneband-items.collapsed {
-  display: none;
-}
-.done-chip {
+.canvas-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 1;
   color: var(--muted);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 11px;
+  border-radius: 7px;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, color 0.15s;
 }
-.done-chip:hover {
+.canvas-btn:hover {
   border-color: var(--accent);
+  color: var(--text);
+}
+.canvas-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Shown only when the canvas outruns the viewport — otherwise it carries no
+   information. Sized from JS to the canvas aspect ratio so it never letterboxes. */
+.minimap {
+  position: absolute;
+  left: 14px;
+  bottom: 48px;
+  padding: 5px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  opacity: 0.62;
+  cursor: pointer;
+  transition: opacity 0.15s, border-color 0.15s;
+  z-index: 4;
+}
+.minimap:hover {
+  opacity: 1;
+  border-color: var(--accent);
+}
+.minimap.hidden {
+  display: none;
+}
+.minimap svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mm-frame {
+  fill: var(--phase-bg);
+  stroke: var(--border2);
+  stroke-width: 3;
+}
+.mm-card {
+  fill: var(--muted);
+  opacity: 0.55;
+}
+.mm-card.sel {
+  fill: var(--accent);
+  opacity: 1;
+}
+.mm-view {
+  fill: var(--accent);
+  fill-opacity: 0.12;
+  stroke: var(--accent);
+  stroke-width: 4;
 }
 
 /* ===== Banners (roadmap) ===== */

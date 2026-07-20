@@ -58,12 +58,19 @@
       <section id="roadmap" class="view active">
         <div id="conflicts" class="conflicts hidden"></div>
         <div id="review" class="review hidden"></div>
-        <div class="board-wrap">
+        <div id="board-wrap" class="board-wrap" tabindex="0" role="application" aria-label="Roadmap canvas — drag to pan, arrow keys to pan, plus and minus to zoom, 0 to fit">
           <div id="board" class="board">
             <svg id="edges" class="edges" viewBox="0 0 1180 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
           </div>
+          <div class="canvas-controls">
+            <button id="zoom-out" class="canvas-btn" type="button" title="Zoom out (−)">−</button>
+            <button id="zoom-fit" class="canvas-btn" type="button" title="Fit roadmap to view (0)">⤢</button>
+            <button id="zoom-in" class="canvas-btn" type="button" title="Zoom in (+)">+</button>
+          </div>
+          <div id="minimap" class="minimap hidden">
+            <svg id="minimap-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+          </div>
         </div>
-        <section id="doneband" class="doneband hidden"></section>
       </section>
 
       <section id="topology" class="view">

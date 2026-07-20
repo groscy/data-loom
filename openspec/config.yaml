@@ -12,8 +12,9 @@ context: |
   no cloud, single user. Target host OS is Windows.
 
   Roadmap model (decided):
-    - A roadmap NODE is exactly one OpenSpec change (proposal). Archived
-      changes appear as completed nodes in a collapsed "done" band.
+    - A roadmap NODE is exactly one OpenSpec change (proposal). The roadmap
+      shows OPEN changes only; archived work is read in the Atlas, which
+      carries each archived change's rationale and what it settled into.
     - Ordering is DERIVED, never stored. Phase is a pure function of the
       dependency DAG, recomputed by the daemon on every file change. The
       propose step only REPORTS the computed slot; it never writes a phase

@@ -39,7 +39,7 @@ data-loom stop
 Open <http://127.0.0.1:4317>. The daemon watches your `openspec/` workspace, so the dashboard updates live as you edit — no refresh.
 
 - **Project selector** (top-right) — switch which project is shown. The list is your Claude Code projects that contain an `openspec/` workspace.
-- **Roadmap** — changes laid out by dependency phase and coloured by status. Click a node to inspect it. Archived work collapses into a done band; dependency cycles and dangling dependencies surface as conflicts.
+- **Roadmap** — changes laid out by dependency phase and coloured by status, on a canvas you drag to pan and pinch to zoom; a minimap appears once the plan outgrows the window. Click a node to inspect it. Dependency cycles and dangling dependencies surface as conflicts. Archived work isn't shown here — it's in the Atlas.
 - **Atlas** — the settled system as living, Arc42-flavored documentation derived from your specs: capabilities grouped by domain, each with its requirements, behavior, and the changes that shaped it. Whatever changed since your last visit is marked, so you can jump straight to what's new.
 - **MCP Topology** — your local MCP servers around the Claude Code hub. Click **check** to passively probe one; DataLoom only reports what's reachable — it never starts a server.
 

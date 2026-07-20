@@ -27,7 +27,7 @@ export interface TaskGroup {
 /** One roadmap node = one OpenSpec change. */
 export interface ChangeNode {
   name: string;
-  /** Topological phase (1-based). 0 only for archived nodes, which live in the done band. */
+  /** Topological phase (1-based). 0 only for archived nodes, which the roadmap does not place. */
   phase: number;
   status: Status;
   /** Implementation readiness — ready to start now, blocked by active work, or done. */
