@@ -25,7 +25,7 @@ Bound to `127.0.0.1:4317`, it holds four subsystems:
 
 ### Consumers — what the daemon feeds
 
-- **Browser dashboard** ([`public/`](public/)) — a thin, live-updating SPA with a roadmap tab (changes by phase × status) and an MCP topology tab. It only renders daemon state.
+- **Browser dashboard** ([`public/`](public/)) — a thin, live-updating SPA with a roadmap tab (changes by phase × status), an atlas tab (the settled system, opening on a C4-style map that drills into the documentation) and an MCP topology tab. All three are pan/zoom canvases driven by one shared controller. It only renders daemon state.
 - **MCP clients** — Claude Code / Claude Desktop, over `/mcp`, or via the on-demand [stdio shim](src/mcpShim.ts) that starts the daemon and proxies to it.
 
 ## The live loop
@@ -43,6 +43,7 @@ Orthogonal to the request path, [`index.ts`](src/index.ts) dispatches the CLI ve
 | [`src/index.ts`](src/index.ts) | Daemon entry point + CLI verb dispatch; session and project-selection state |
 | [`src/server.ts`](src/server.ts) | HTTP + WebSocket server, static assets, REST API, loopback guard, MCP session hosting |
 | [`src/derive.ts`](src/derive.ts) | Pure roadmap derivation: DAG, phases, readiness, conflict detection |
+| [`src/atlas.ts`](src/atlas.ts) | Pure atlas derivation: building blocks, provenance, decisions, co-change relations |
 | [`src/openspecClient.ts`](src/openspecClient.ts) | Wrapper around the `openspec` CLI + proposal-metadata parsing |
 | [`src/watcher.ts`](src/watcher.ts) | Debounced `openspec/` file watcher that triggers recompute |
 | [`src/projects.ts`](src/projects.ts) | Discover selectable OpenSpec projects from Claude's known projects |
@@ -55,7 +56,7 @@ Orthogonal to the request path, [`index.ts`](src/index.ts) dispatches the CLI ve
 | [`src/claudeCode.ts`](src/claudeCode.ts) · [`src/claudeDesktop.ts`](src/claudeDesktop.ts) | Register / unregister the MCP endpoint with each client |
 | [`src/weaveAlias.ts`](src/weaveAlias.ts) | Provision the `/loom:weave` command |
 | [`src/tray.ts`](src/tray.ts) | Ambient system-tray indicator for the detached daemon |
-| [`public/`](public/) | Browser SPA: roadmap + MCP topology views |
+| [`public/`](public/) | Browser SPA: roadmap, atlas (map + documentation) and MCP topology views |
 
 ## Design principles
 

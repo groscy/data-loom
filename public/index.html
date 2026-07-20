@@ -98,8 +98,27 @@
         </div>
       </section>
 
+      <!-- The atlas is a map that leads into the documentation: the C4-style board
+           is the entry point, the prose is its deepest level. Both live in this one
+           subpage so the breadcrumb spans them as a single trail. -->
       <section id="atlas" class="view">
-        <div id="atlas-body" class="atlas-body"></div>
+        <div id="atlas-crumbs" class="atlas-crumbs"></div>
+        <div id="atlas-map-wrap" class="canvas-viewport" tabindex="0" role="application" aria-label="Atlas map — drag to pan, arrow keys to pan, plus and minus to zoom, 0 to fit, Escape to go up a level">
+          <div id="atlas-map" class="amap canvas-layer">
+            <svg id="atlas-edges" class="edges" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+          </div>
+          <div class="canvas-controls">
+            <button class="canvas-btn zoom-out" type="button" title="Zoom out (−)">−</button>
+            <button class="canvas-btn zoom-fit" type="button" title="Fit map to view (0)">⤢</button>
+            <button class="canvas-btn zoom-in" type="button" title="Zoom in (+)">+</button>
+          </div>
+          <div id="atlas-minimap" class="minimap hidden">
+            <svg id="atlas-minimap-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+          </div>
+        </div>
+        <div id="atlas-doc" class="atlas-doc hidden">
+          <div id="atlas-body" class="atlas-body"></div>
+        </div>
       </section>
     </main>
 

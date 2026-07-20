@@ -116,6 +116,22 @@ export interface AtlasDecision {
   capabilities: string[];
 }
 
+/**
+ * A relation between two settled capabilities, derived from co-change coupling:
+ * archived changes that touched both. This is emphatically NOT a dependency —
+ * it records that two capabilities moved together, with no direction and no
+ * claim that one needs the other. The roadmap's edges mean "after"; these do not.
+ */
+export interface AtlasRelation {
+  /** The pair, always sorted so `(a,b)` and `(b,a)` collapse to one relation. */
+  a: string;
+  b: string;
+  /** How many archived changes touched both. */
+  weight: number;
+  /** Those changes, oldest first — what the view shows to justify the edge. */
+  changes: string[];
+}
+
 /** The complete, derived architecture atlas pushed to the browser. */
 export interface AtlasModel {
   generatedAt: string;
@@ -125,6 +141,8 @@ export interface AtlasModel {
   groups: AtlasGroup[];
   /** All shaping changes, newest first — the global Decisions section and per-block join source. */
   decisions: AtlasDecision[];
+  /** Co-change coupling between capabilities — the map's edges. Empty with no archive. */
+  relations: AtlasRelation[];
 }
 
 /** A surfaced ordering problem: a dependency cycle or a dangling/out-of-order dep. */

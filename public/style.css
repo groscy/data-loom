@@ -292,9 +292,12 @@ main {
 }
 /* The roadmap fills the viewport as a column: banners keep their natural height,
    the canvas takes the rest. `min-height: 0` lets the canvas actually shrink —
-   without it a flex item refuses to go below its content size and overflows. */
+   without it a flex item refuses to go below its content size and overflows.
+   The atlas joins them: its map is a canvas, so it cannot ride `main`'s scroll —
+   its document pane owns that scrolling instead (see `.atlas-doc`). */
 #roadmap.active,
-#topology.active {
+#topology.active,
+#atlas.active {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -315,6 +318,10 @@ main {
 }
 .canvas-viewport.dragging {
   cursor: grabbing;
+}
+/* The atlas swaps its map viewport out for the documentation pane. */
+.canvas-viewport.hidden {
+  display: none;
 }
 .canvas-viewport:focus-visible {
   outline: 2px solid var(--accent);
@@ -1100,6 +1107,205 @@ main {
 }
 
 /* ===== System Atlas ===== */
+
+/* ── the C4 map: the atlas's entry point ── */
+
+/* The trail spans both panes — map levels and the documentation leaf — so the
+   reader always knows how deep they are and can climb from anywhere. */
+.atlas-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 12px;
+  min-height: 42px;
+}
+.atlas-crumb {
+  font-family: var(--display);
+  font-weight: 600;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.atlas-crumb:hover {
+  color: var(--text);
+  background: var(--panel2);
+}
+.atlas-crumb.here {
+  color: var(--text);
+  cursor: default;
+}
+.atlas-crumb.here:hover {
+  background: none;
+}
+.atlas-crumb-sep {
+  color: var(--faint);
+  font-size: 11px;
+}
+.atlas-crumb-back {
+  color: var(--accent);
+}
+/* Pushed to the right: legend and hints are context, not part of the trail. */
+.atlas-crumb-spacer {
+  flex: 1;
+}
+.atlas-crumb-note {
+  color: var(--faint);
+  font-size: 10.5px;
+  font-family: var(--prose);
+}
+.atlas-legend {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-family: var(--prose);
+}
+.atlas-legend-line {
+  width: 26px;
+  height: 0;
+  border-top: 2px solid var(--edge);
+}
+
+/* The map canvas. Node size is fixed and the canvas grows with the node count —
+   the same bet the topology's pitch floor makes: navigate, never squint. */
+.amap {
+  height: 600px; /* width + height are set from JS per level */
+}
+/* The level's frame: the system, the opened group, or the opened capability. */
+.amap-bound {
+  position: absolute;
+  border: 1px dashed var(--border2);
+  border-radius: 16px;
+  background: var(--panel);
+  z-index: 0;
+}
+.amap-bound-label {
+  position: absolute;
+  top: 12px;
+  left: 18px;
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.amap-bound-sub {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  font-size: 10.5px;
+  color: var(--faint);
+  font-family: var(--prose);
+}
+
+.amap-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  border-radius: 11px;
+  padding: 12px 14px;
+  cursor: pointer;
+  z-index: 2;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.amap-node:hover {
+  border-color: var(--accent);
+}
+.amap-node:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.amap-node.leaf {
+  cursor: pointer;
+}
+.amap-node-name {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+}
+.amap-node.leaf .amap-node-name {
+  font-family: var(--prose);
+  font-weight: 500;
+  font-size: 12px;
+}
+.amap-node-meta {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-family: var(--prose);
+}
+.amap-node-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Opens the prose directly, skipping the requirement level. Its own gesture, so
+   it must not also trigger the node's descend. */
+.amap-node-doc {
+  border: 1px solid var(--border2);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 6px;
+  font-size: 10px;
+  font-family: var(--prose);
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.amap-node-doc:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Recency, in the same two states the document uses. */
+.amap-node.new {
+  border-color: var(--c-done);
+}
+.amap-node.mod {
+  border-color: var(--c-progress);
+}
+.amap-mark {
+  font-size: 9.5px;
+  font-family: var(--prose);
+  letter-spacing: 0.04em;
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.amap-mark.new {
+  color: var(--c-done);
+  border: 1px solid var(--c-done);
+}
+.amap-mark.mod {
+  color: var(--c-progress);
+  border: 1px solid var(--c-progress);
+}
+
+/* The documentation pane. It owns its scrolling now that `#atlas` is a flex
+   column — `main`'s scroll no longer reaches it. */
+.atlas-doc {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.atlas-doc.hidden {
+  display: none;
+}
+
 .atlas-body {
   max-width: 960px;
   margin: 0 auto;

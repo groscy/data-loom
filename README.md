@@ -40,7 +40,7 @@ Open <http://127.0.0.1:4317>. The daemon watches your `openspec/` workspace, so 
 
 - **Project selector** (top-right) — switch which project is shown. The list is your Claude Code projects that contain an `openspec/` workspace.
 - **Roadmap** — changes laid out by dependency phase and coloured by status, on a canvas you drag to pan and pinch to zoom; a minimap appears once the plan outgrows the window. Click a node to inspect it. Dependency cycles and dangling dependencies surface as conflicts. Archived work isn't shown here — it's in the Atlas.
-- **Atlas** — the settled system as living, Arc42-flavored documentation derived from your specs: capabilities grouped by domain, each with its requirements, behavior, and the changes that shaped it. Whatever changed since your last visit is marked, so you can jump straight to what's new.
+- **Atlas** — the settled system as living, Arc42-flavored documentation derived from your specs: capabilities grouped by domain, each with its requirements, behavior, and the changes that shaped it. It opens on a C4-style map you drill through — system, then domain, then capability — landing in the prose exactly where you aimed; lines between the parts show which capabilities have changed together in the past. Whatever changed since your last visit is marked, so you can jump straight to what's new.
 - **MCP Topology** — your local MCP servers around the Claude Code hub. Click **check** to passively probe one; DataLoom only reports what's reachable — it never starts a server.
 
 ### Plan proposal dependencies with Claude

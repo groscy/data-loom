@@ -15,8 +15,17 @@ import type {
   AtlasModel,
   AtlasProvenance,
   AtlasProvenanceRef,
+  AtlasRelation,
   AtlasRequirement,
 } from "./types.js";
+
+/**
+ * A change touching more capabilities than this contributes no relations. A
+ * sweeping change couples every capability it touches to every other one, and
+ * that clique is noise: it says "we renamed something everywhere", not "these
+ * two belong together". Bounding the fan-out is what keeps the signal readable.
+ */
+const REL_MAX_FANOUT = 4;
 
 export async function deriveAtlas(client: OpenSpecClient): Promise<AtlasModel> {
   const [overview, specs, archived] = await Promise.all([
@@ -80,7 +89,45 @@ export async function deriveAtlas(client: OpenSpecClient): Promise<AtlasModel> {
     overview,
     groups: groupByDomain(blocks),
     decisions,
+    relations: deriveRelations(decisions),
   };
+}
+
+/**
+ * Co-change coupling: two capabilities are related when archived changes touched
+ * both, weighted by how many did. Mechanical, like the roadmap's dependency
+ * edges — the join is the capability lists the archive already gives us, with no
+ * prose analysis and no reading of project source.
+ *
+ * The relation is undirected: "changed together" has no direction, so the pair is
+ * keyed by its sorted names and `(a,b)` / `(b,a)` collapse into one edge.
+ */
+function deriveRelations(decisions: AtlasDecision[]): AtlasRelation[] {
+  const byPair = new Map<string, AtlasRelation>();
+
+  // Oldest first, so each relation's `changes` reads chronologically.
+  for (const d of [...decisions].sort((x, y) => x.date.localeCompare(y.date))) {
+    const caps = [...new Set(d.capabilities)].sort();
+    if (caps.length < 2 || caps.length > REL_MAX_FANOUT) continue;
+    for (let i = 0; i < caps.length; i++) {
+      for (let j = i + 1; j < caps.length; j++) {
+        const key = `${caps[i]}\n${caps[j]}`;
+        let rel = byPair.get(key);
+        if (!rel) {
+          rel = { a: caps[i], b: caps[j], weight: 0, changes: [] };
+          byPair.set(key, rel);
+        }
+        rel.weight++;
+        rel.changes.push(d.change);
+      }
+    }
+  }
+
+  // Deterministic order: the same workspace derives the same array every time,
+  // so a re-render can't reshuffle the edges under the reader.
+  return [...byPair.values()].sort(
+    (x, y) => y.weight - x.weight || x.a.localeCompare(y.a) || x.b.localeCompare(y.b),
+  );
 }
 
 const reqKey = (capability: string, title: string): string => `${capability}\n${title}`;

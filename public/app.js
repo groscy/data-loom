@@ -21,12 +21,27 @@ const spokesSvg = document.getElementById("spokes");
 const topoMinimap = document.getElementById("topo-minimap");
 const topoMinimapSvg = document.getElementById("topo-minimap-svg");
 const atlasBody = document.getElementById("atlas-body");
+const atlasDoc = document.getElementById("atlas-doc");
+const atlasCrumbs = document.getElementById("atlas-crumbs");
+const atlasMapWrap = document.getElementById("atlas-map-wrap");
+const atlasMapLayer = document.getElementById("atlas-map");
+const atlasEdgesSvg = document.getElementById("atlas-edges");
+const atlasMinimap = document.getElementById("atlas-minimap");
+const atlasMinimapSvg = document.getElementById("atlas-minimap-svg");
 
 // ── client state ──
 let projects = null;
 let model = null;
 let atlas = null;
 let atlasSeenBaseline = null; // ms cursor: "changed since" is measured against this
+// Atlas map focus: which level is open and what it is opened on. "system" needs
+// neither; the deeper levels keep theirs after ascending so a shallower level can
+// still show where the reader last was.
+let atlasMapLevel = "system"; // "system" | "domain" | "capability" | "doc"
+let atlasMapGroup = null; // group key
+let atlasMapBlock = null; // capability name
+let atlasReturn = null; // the map level the documentation was entered from
+let atlasMinimapData = { nodes: [] }; // what the atlas minimap draws
 let mcpModel = null;
 let activeTab = "roadmap";
 let scopeFilter = "all";
@@ -43,7 +58,19 @@ const G_MX = 150,
   N_TOP = 58,
   V_SPACE = 170;
 
-// ── canvas navigation (shared by the roadmap and MCP topology boards) ──
+// ── atlas map geometry (fixed node size; the canvas grows with the node count) ──
+// Nodes never shrink to fit: a level with many nodes gets a bigger canvas and is
+// navigated by pan/zoom, the same choice the topology's pitch floor makes.
+const A_NODE_W = 208,
+  A_NODE_H = 92,
+  A_GAP_X = 56,
+  A_GAP_Y = 44,
+  A_PAD = 72, // canvas margin outside the level's boundary
+  A_BOUND_PAD = 36, // boundary inset from that margin
+  A_BOUND_TOP = 44, // label band at the top of the boundary, above the first row
+  A_MAX_COLS = 5; // beyond this the grid grows downward rather than sideways
+
+// ── canvas navigation (shared by the roadmap, atlas map and MCP topology boards) ──
 // Each board is one composited layer carrying translate+scale, so its nodes and
 // its SVG overlay pan and zoom together and connectors stay anchored for free.
 // The state lives in the controller closure, outside any DOM the view tears down,
@@ -91,12 +118,14 @@ for (const btn of document.querySelectorAll(".tab[data-tab]")) {
     if (activeTab === "atlas" && prev !== "atlas") {
       enterAtlas();
       renderAtlas();
+      renderAtlasMap();
     }
     // A canvas board that first rendered while its tab was hidden measured a 0×0
     // viewport, so it is neither fitted nor able to judge its minimap. syncTabs()
     // has already made it visible, so it can settle both now.
     if (activeTab === "roadmap" && prev !== "roadmap") roadmapCanvas.revalidate();
     if (activeTab === "topology" && prev !== "topology") topologyCanvas.revalidate();
+    if (activeTab === "atlas" && prev !== "atlas") atlasCanvas.revalidate();
   });
 }
 
@@ -128,6 +157,8 @@ function setProjects(p) {
   if (!projects || projects.current !== p.current) {
     roadmapCanvas.markUnfitted();
     topologyCanvas.markUnfitted();
+    atlasCanvas.markUnfitted();
+    resetAtlasFocus(); // another project's groups are not this one's
   }
   projects = p;
   renderProjects(p);
@@ -140,6 +171,7 @@ function setProjects(p) {
     reviewEl.classList.add("hidden");
     atlas = null;
     renderAtlas();
+    renderAtlasMap();
   }
 }
 
@@ -1208,7 +1240,9 @@ function changeAction(c) {
 
 function setAtlas(a) {
   atlas = a;
+  reconcileAtlasFocus(); // a push can archive away whatever the reader had open
   renderAtlas();
+  renderAtlasMap();
 }
 
 // ── recency overlay: "changed since your last visit" ──
@@ -1261,6 +1295,7 @@ function markAllRead() {
   atlasSeenBaseline = Date.now();
   setStoredSeen(atlasSeenBaseline);
   renderAtlas();
+  renderAtlasMap(); // the map's marks come from the same cursor
 }
 function sinceDot(kind) {
   const s = el("span", "atlas-since " + kind, kind === "new" ? "new" : "changed");
@@ -1378,6 +1413,7 @@ function renderBlock(b) {
   for (const r of b.requirements) {
     const rmark = markOf(r.provenance);
     const d = el("details", "atlas-req" + (rmark ? " changed" : ""));
+    d.dataset.req = r.title; // how the map targets this requirement on handoff
     if (openByDefault || rmark) d.open = true; // recency-driven disclosure
     const sum = el("summary", "atlas-req-sum");
     const left = el("span", "atlas-req-left");
@@ -1519,6 +1555,448 @@ function scrollToDecision(change) {
   t.scrollIntoView({ behavior: "smooth", block: "center" });
   t.classList.add("flash");
   setTimeout(() => t.classList.remove("flash"), 1200);
+}
+
+// ═══════════════ ATLAS MAP (C4-style, drilled by level) ═══════════════
+// The atlas's entry point: the settled system as nested levels, each level showing
+// the contents of exactly one node of the level above — system → domain →
+// capability — with the documentation above as the deepest level. Same controller
+// as the other two boards, so pan/zoom/fit/minimap cannot drift from them.
+
+const atlasCanvas = createCanvasController({
+  viewport: atlasMapWrap,
+  canvas: atlasMapLayer,
+  minimap: atlasMinimap,
+  minimapSvg: atlasMinimapSvg,
+  dragIgnoreSelector: ".amap-node, .canvas-controls, .minimap",
+  shouldShowMinimap: (cw, ch, vw, vh) => cw > vw || ch > vh,
+  drawMinimapContent: () => {
+    let s = "";
+    for (const n of atlasMinimapData.nodes) {
+      s += `<rect class="mm-card${n.sel ? " sel" : ""}" x="${n.x}" y="${n.y}" width="${A_NODE_W}" height="${A_NODE_H}" rx="10"/>`;
+    }
+    return s;
+  },
+  // The empty state is centered inside a canvas sized to the viewport, so a reveal
+  // needs a re-render to place it — a bare fit would leave it against a stale 0×0.
+  onReveal: () => {
+    if (atlas) renderAtlasMap();
+  },
+});
+
+let atlasFitKey = null; // level signature last fitted — a new level opens fitted
+
+const plural = (n, one, many) => (n === 1 ? one : many || one + "s");
+
+function resetAtlasFocus() {
+  atlasMapLevel = "system";
+  atlasMapGroup = null;
+  atlasMapBlock = null;
+  atlasReturn = null;
+  atlasFitKey = null;
+}
+
+function atlasGroupOf(key) {
+  return ((atlas && atlas.groups) || []).find((g) => g.key === key) || null;
+}
+function atlasBlockOf(groupKey, name) {
+  const g = atlasGroupOf(groupKey);
+  return (g && g.blocks.find((b) => b.name === name)) || null;
+}
+
+// A live push can rename a capability or archive a group away underneath the
+// reader. Keep the focus while it still resolves; fall back rather than strand the
+// view on a node the model no longer contains.
+function reconcileAtlasFocus() {
+  if (atlasMapLevel === "system") return;
+  if (!atlasGroupOf(atlasMapGroup)) return resetAtlasFocus();
+  if (atlasMapBlock && !atlasBlockOf(atlasMapGroup, atlasMapBlock)) {
+    // Levels that are *about* the block have nothing left to show.
+    if (atlasMapLevel === "capability" || atlasMapLevel === "doc") return resetAtlasFocus();
+    atlasMapBlock = null; // elsewhere it is only a "where you last were" hint
+  }
+}
+
+// ── layout ──
+// A square-ish grid, capped in width so a big level grows downward instead of
+// becoming a letterbox. Node size is fixed; the canvas is what scales.
+function atlasGrid(n) {
+  const cols = Math.max(1, Math.min(A_MAX_COLS, Math.ceil(Math.sqrt(n))));
+  const rows = Math.max(1, Math.ceil(n / cols));
+  const gw = cols * A_NODE_W + (cols - 1) * A_GAP_X;
+  const gh = rows * A_NODE_H + (rows - 1) * A_GAP_Y;
+  return { cols, rows, gw, gh, w: gw + 2 * A_PAD, h: gh + A_BOUND_TOP + 2 * A_PAD };
+}
+
+/** Top-left of the i-th node. Each row is centered, so a short last row sits even. */
+function atlasNodeXY(i, n, grid) {
+  const row = Math.floor(i / grid.cols),
+    col = i % grid.cols;
+  const inRow = Math.min(grid.cols, n - row * grid.cols);
+  const rowW = inRow * A_NODE_W + (inRow - 1) * A_GAP_X;
+  return {
+    x: A_PAD + (grid.gw - rowW) / 2 + col * (A_NODE_W + A_GAP_X),
+    y: A_PAD + A_BOUND_TOP + row * (A_NODE_H + A_GAP_Y),
+  };
+}
+
+// ── what each level shows ──
+// One shape for all three levels: a boundary (the thing you are inside) plus the
+// nodes it contains. `sel` is the node the reader last descended through.
+function atlasLevelSpec() {
+  if (atlasMapLevel === "capability") {
+    const b = atlasBlockOf(atlasMapGroup, atlasMapBlock);
+    if (b)
+      return {
+        label: b.name,
+        sub: b.requirements.length + plural(b.requirements.length, " requirement"),
+        sel: null,
+        items: b.requirements.map((r) => {
+          const n = (r.scenarios || []).length;
+          return {
+            key: r.title,
+            title: r.title,
+            meta: n + plural(n, " behavior"),
+            mark: markOf(r.provenance),
+            leaf: true,
+            hint: "Open this requirement in the documentation",
+            open: () => openAtlasDoc(b.name, r.title),
+          };
+        }),
+      };
+  }
+  if (atlasMapLevel === "domain") {
+    const g = atlasGroupOf(atlasMapGroup);
+    if (g)
+      return {
+        label: g.key,
+        sub: g.blocks.length + plural(g.blocks.length, " capability", " capabilities"),
+        sel: atlasMapBlock,
+        items: [...g.blocks]
+          .sort((a, b) => b.requirements.length - a.requirements.length || a.name.localeCompare(b.name))
+          .map((b) => ({
+            key: b.name,
+            title: b.name,
+            meta: b.requirements.length + plural(b.requirements.length, " requirement"),
+            mark: blockMark(b),
+            hint: "Open this capability's requirements",
+            open: () => descendAtlas("capability", g.key, b.name),
+            openDoc: () => openAtlasDoc(b.name, null),
+          })),
+      };
+  }
+  // System — also the fallback when a focused group or block has gone.
+  const caps = atlas.groups.reduce((n, g) => n + g.blocks.length, 0);
+  return {
+    label: "System",
+    sub:
+      caps +
+      plural(caps, " capability", " capabilities") +
+      " · " +
+      atlas.groups.length +
+      plural(atlas.groups.length, " domain"),
+    sel: atlasMapGroup,
+    items: [...atlas.groups]
+      .sort((a, b) => b.blocks.length - a.blocks.length || a.key.localeCompare(b.key))
+      .map((g) => ({
+        key: g.key,
+        title: g.key,
+        meta: g.blocks.length + plural(g.blocks.length, " capability", " capabilities"),
+        mark: groupMark(g),
+        hint: "Open this domain's capabilities",
+        open: () => descendAtlas("domain", g.key, null),
+      })),
+  };
+}
+
+/** A group is "new" only when all of it arrived since the last visit, else "mod". */
+function groupMark(g) {
+  if (!g.blocks.length) return null;
+  const marks = g.blocks.map(blockMark);
+  if (marks.every((m) => m === "new")) return "new";
+  return marks.some((m) => m) ? "mod" : null;
+}
+
+// ── render ──
+function renderAtlasMap() {
+  syncAtlasPanes();
+  renderAtlasCrumbs();
+  if (atlasMapLevel === "doc") return; // the map is hidden; it re-renders on return
+
+  // Rebuild the layer around the SVG overlay, whose identity is held in a const.
+  for (const child of [...atlasMapLayer.children]) if (child !== atlasEdgesSvg) child.remove();
+  atlasEdgesSvg.innerHTML = "";
+  atlasMinimapData = { nodes: [] };
+
+  if (!atlas || !(atlas.groups && atlas.groups.length)) {
+    const msg =
+      projects && projects.current
+        ? "No settled capabilities yet — the atlas fills in as changes are archived."
+        : "Select a project above to begin.";
+    atlasMapLayer.appendChild(el("div", "empty-state", msg));
+    atlasCanvas.reset();
+    atlasFitKey = null;
+    return;
+  }
+
+  const spec = atlasLevelSpec();
+  const grid = atlasGrid(spec.items.length);
+  atlasMapLayer.style.width = grid.w + "px";
+  atlasMapLayer.style.height = grid.h + "px";
+  atlasEdgesSvg.setAttribute("viewBox", `0 0 ${grid.w} ${grid.h}`);
+  atlasCanvas.setCanvasSize(grid.w, grid.h);
+
+  const bound = el("div", "amap-bound");
+  bound.style.left = A_PAD - A_BOUND_PAD + "px";
+  bound.style.top = A_PAD - A_BOUND_PAD + "px";
+  bound.style.width = grid.gw + 2 * A_BOUND_PAD + "px";
+  bound.style.height = grid.gh + A_BOUND_TOP + 2 * A_BOUND_PAD + "px";
+  bound.appendChild(el("div", "amap-bound-label", spec.label));
+  bound.appendChild(el("div", "amap-bound-sub", spec.sub));
+  atlasMapLayer.appendChild(bound);
+
+  const at = new Map();
+  spec.items.forEach((item, i) => {
+    const pos = atlasNodeXY(i, spec.items.length, grid);
+    at.set(item.key, pos);
+    atlasMinimapData.nodes.push({ x: pos.x, y: pos.y, sel: spec.sel === item.key });
+    placeAtlasNode(item, pos);
+  });
+  drawAtlasEdges(at);
+  atlasCanvas.renderMinimap();
+
+  // Arriving at a level fits it; a live push within the same level keeps the
+  // reader's place, as the other two boards do.
+  const fitKey = [atlasMapLevel, atlasMapGroup, atlasMapBlock].join("\n");
+  if (fitKey !== atlasFitKey) {
+    atlasFitKey = fitKey;
+    atlasCanvas.markUnfitted();
+  }
+  atlasCanvas.settle();
+}
+
+function placeAtlasNode(item, pos) {
+  const n = el("div", "amap-node" + (item.leaf ? " leaf" : "") + (item.mark ? " " + item.mark : ""));
+  n.style.left = pos.x + "px";
+  n.style.top = pos.y + "px";
+  n.style.width = A_NODE_W + "px";
+  n.style.height = A_NODE_H + "px";
+  n.tabIndex = 0;
+  n.setAttribute("role", "button");
+  if (item.hint) {
+    n.title = item.hint;
+    // The hint alone would name every node on the level identically; lead with
+    // what this node actually is so they stay tellable apart when read aloud.
+    n.setAttribute("aria-label", item.title + " — " + item.hint.toLowerCase());
+  }
+  n.appendChild(el("div", "amap-node-name", item.title));
+
+  const foot = el("div", "amap-node-foot");
+  foot.appendChild(el("span", "amap-node-meta", item.meta));
+  if (item.mark) foot.appendChild(el("span", "amap-mark " + item.mark, item.mark === "new" ? "new" : "changed"));
+  if (item.openDoc) {
+    const b = el("button", "amap-node-doc", "docs");
+    b.type = "button";
+    b.title = "Open this capability's documentation";
+    // Its own gesture: it must not also fire the node's descend.
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      item.openDoc();
+    });
+    b.addEventListener("keydown", (e) => e.stopPropagation());
+    foot.appendChild(b);
+  }
+  n.appendChild(foot);
+
+  n.addEventListener("click", item.open);
+  n.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault(); // Space would otherwise scroll, Enter would do nothing
+    item.open();
+  });
+  atlasMapLayer.appendChild(n);
+}
+
+// ── relations ──
+// Co-change coupling, drawn as undirected curves. Deliberately unlike the
+// roadmap's dashed, arrowed dependency edges: these say "moved together", not
+// "comes after", and an arrowhead would assert a direction the data does not have.
+function drawAtlasEdges(at) {
+  let s = "";
+  for (const r of atlasEdgesFor()) {
+    const pa = at.get(r.a),
+      pb = at.get(r.b);
+    if (!pa || !pb) continue;
+    const ax = pa.x + A_NODE_W / 2,
+      ay = pa.y + A_NODE_H / 2,
+      bx = pb.x + A_NODE_W / 2,
+      by = pb.y + A_NODE_H / 2;
+    const dx = bx - ax,
+      dy = by - ay,
+      bow = 0.1; // perpendicular, so the curve reads the same at any orientation
+    const d =
+      `M ${ax} ${ay} C ${ax + dx * 0.25 - dy * bow} ${ay + dy * 0.25 + dx * bow},` +
+      ` ${ax + dx * 0.75 - dy * bow} ${ay + dy * 0.75 + dx * bow}, ${bx} ${by}`;
+    const w = (1.2 + Math.min(r.weight, 5) * 0.5).toFixed(2);
+    s += `<path d="${d}" fill="none" stroke="var(--edge)" stroke-width="${w}" opacity="0.55"><title>${escapeHtml(atlasRelTitle(r))}</title></path>`;
+  }
+  atlasEdgesSvg.innerHTML = s;
+}
+
+/**
+ * The relations the current level draws: block pairs within the opened group at
+ * the domain level, group pairs at the system level (aggregating the relations
+ * that cross a group boundary — the ones inside a group are what the domain level
+ * is for). The capability level draws none: the archive's deltas are per
+ * capability, so requirement-level coupling is not derivable from them.
+ */
+function atlasEdgesFor() {
+  const rels = (atlas && atlas.relations) || [];
+  if (!rels.length) return [];
+
+  if (atlasMapLevel === "domain") {
+    const g = atlasGroupOf(atlasMapGroup);
+    if (!g) return [];
+    const names = new Set(g.blocks.map((b) => b.name));
+    return rels.filter((r) => names.has(r.a) && names.has(r.b));
+  }
+  if (atlasMapLevel !== "system") return [];
+
+  const groupOf = new Map();
+  for (const g of atlas.groups) for (const b of g.blocks) groupOf.set(b.name, g.key);
+  const byPair = new Map();
+  for (const r of rels) {
+    const ga = groupOf.get(r.a),
+      gb = groupOf.get(r.b);
+    if (!ga || !gb || ga === gb) continue;
+    const key = ga < gb ? ga + "\n" + gb : gb + "\n" + ga;
+    let agg = byPair.get(key);
+    if (!agg) {
+      agg = { a: ga < gb ? ga : gb, b: ga < gb ? gb : ga, weight: 0, changes: [] };
+      byPair.set(key, agg);
+    }
+    agg.changes.push(...r.changes);
+  }
+  // One change can couple several capability pairs across the same two groups, so
+  // the aggregate weight counts distinct changes rather than summing the pairs.
+  for (const agg of byPair.values()) {
+    agg.changes = [...new Set(agg.changes)];
+    agg.weight = agg.changes.length;
+  }
+  return [...byPair.values()];
+}
+
+function atlasRelTitle(r) {
+  const shown = r.changes.slice(0, 4).join(", ");
+  return `${r.a} and ${r.b} changed together in ${r.weight} ${plural(r.weight, "change")}: ${shown}${r.changes.length > 4 ? ", …" : ""}`;
+}
+
+// ── navigation: breadcrumb, drill, handoff ──
+function syncAtlasPanes() {
+  const showDoc = atlasMapLevel === "doc";
+  atlasDoc.classList.toggle("hidden", !showDoc);
+  atlasMapWrap.classList.toggle("hidden", showDoc);
+}
+
+function renderAtlasCrumbs() {
+  atlasCrumbs.innerHTML = "";
+  if (!atlas || !(atlas.groups && atlas.groups.length)) return;
+
+  const lvl = atlasMapLevel;
+  const parts = [{ label: "System", go: () => goAtlas("system") }];
+  if (lvl !== "system" && atlasMapGroup) parts.push({ label: atlasMapGroup, go: () => goAtlas("domain") });
+  if ((lvl === "capability" || lvl === "doc") && atlasMapBlock)
+    parts.push({ label: atlasMapBlock, go: () => goAtlas("capability") });
+  if (lvl === "doc") parts.push({ label: "documentation", go: null });
+  parts[parts.length - 1].go = null; // the last entry is where you already are
+
+  parts.forEach((p, i) => {
+    if (i) atlasCrumbs.appendChild(el("span", "atlas-crumb-sep", "›"));
+    const b = el("button", "atlas-crumb" + (p.go ? "" : " here"), p.label);
+    b.type = "button";
+    if (p.go) b.addEventListener("click", p.go);
+    else b.disabled = true;
+    atlasCrumbs.appendChild(b);
+  });
+
+  atlasCrumbs.appendChild(el("span", "atlas-crumb-spacer"));
+  if (lvl === "doc") {
+    const back = el("button", "atlas-crumb atlas-crumb-back", "← back to map");
+    back.type = "button";
+    back.addEventListener("click", backToMap);
+    atlasCrumbs.appendChild(back);
+  } else if (atlasEdgesFor().length) {
+    // Only where there is something to explain — no relations, no legend.
+    const lg = el("div", "atlas-legend");
+    lg.appendChild(el("span", "atlas-legend-line"));
+    lg.appendChild(el("span", null, "line = changed together in past changes"));
+    atlasCrumbs.appendChild(lg);
+  } else if (lvl !== "capability") {
+    atlasCrumbs.appendChild(el("span", "atlas-crumb-note", "click a node to open it · Escape goes up"));
+  }
+}
+
+function goAtlas(level) {
+  atlasMapLevel = level;
+  atlasReturn = null;
+  renderAtlasMap();
+  atlasCanvas.revalidate(); // it may have been hidden behind the document
+}
+
+function descendAtlas(level, group, block) {
+  atlasMapLevel = level;
+  atlasMapGroup = group;
+  atlasMapBlock = block;
+  renderAtlasMap();
+}
+
+// Escape climbs exactly one level. Bound to the map viewport, so a keypress in
+// the documentation pane — a sibling, not a descendant — never reaches it.
+atlasMapWrap.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || atlasMapLevel === "system") return;
+  e.preventDefault();
+  goAtlas(atlasMapLevel === "capability" ? "domain" : "system");
+});
+
+/** Hand off to the documentation, at a capability and optionally a requirement. */
+function openAtlasDoc(cap, reqTitle) {
+  atlasReturn = { level: atlasMapLevel, group: atlasMapGroup, block: atlasMapBlock };
+  atlasMapLevel = "doc";
+  atlasMapBlock = cap;
+  // The docs button can be pressed from a level focused on the group, so resolve
+  // the group from the capability rather than trusting the current focus.
+  const g = (atlas.groups || []).find((x) => x.blocks.some((b) => b.name === cap));
+  if (g) atlasMapGroup = g.key;
+
+  syncAtlasPanes();
+  renderAtlasCrumbs();
+  if (reqTitle) openAtlasRequirement(cap, reqTitle);
+  else scrollToBlock(cap);
+}
+
+function backToMap() {
+  const r = atlasReturn || { level: "system", group: null, block: null };
+  atlasMapLevel = r.level === "doc" ? "system" : r.level;
+  atlasMapGroup = r.group;
+  atlasMapBlock = r.block;
+  atlasReturn = null;
+  renderAtlasMap();
+  atlasCanvas.revalidate();
+}
+
+/** Expand one requirement in the document and bring it into view. */
+function openAtlasRequirement(cap, title) {
+  const block = document.getElementById("atlas-cap-" + cap);
+  if (!block) return;
+  block.classList.add("flash");
+  setTimeout(() => block.classList.remove("flash"), 1200);
+  for (const d of block.querySelectorAll("details.atlas-req")) {
+    if (d.dataset.req !== title) continue;
+    d.open = true; // fires `toggle`, which is what builds a lazy body
+    d.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+  scrollToBlock(cap); // the title is no longer there — land on the block instead
 }
 
 // ── minimal, dependency-free markdown (the constrained spec/proposal subset) ──
