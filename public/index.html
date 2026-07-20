@@ -58,14 +58,14 @@
       <section id="roadmap" class="view active">
         <div id="conflicts" class="conflicts hidden"></div>
         <div id="review" class="review hidden"></div>
-        <div id="board-wrap" class="board-wrap" tabindex="0" role="application" aria-label="Roadmap canvas — drag to pan, arrow keys to pan, plus and minus to zoom, 0 to fit">
-          <div id="board" class="board">
+        <div id="board-wrap" class="canvas-viewport" tabindex="0" role="application" aria-label="Roadmap canvas — drag to pan, arrow keys to pan, plus and minus to zoom, 0 to fit">
+          <div id="board" class="board canvas-layer">
             <svg id="edges" class="edges" viewBox="0 0 1180 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
           </div>
           <div class="canvas-controls">
-            <button id="zoom-out" class="canvas-btn" type="button" title="Zoom out (−)">−</button>
-            <button id="zoom-fit" class="canvas-btn" type="button" title="Fit roadmap to view (0)">⤢</button>
-            <button id="zoom-in" class="canvas-btn" type="button" title="Zoom in (+)">+</button>
+            <button class="canvas-btn zoom-out" type="button" title="Zoom out (−)">−</button>
+            <button class="canvas-btn zoom-fit" type="button" title="Fit roadmap to view (0)">⤢</button>
+            <button class="canvas-btn zoom-in" type="button" title="Zoom in (+)">+</button>
           </div>
           <div id="minimap" class="minimap hidden">
             <svg id="minimap-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
@@ -83,9 +83,17 @@
           </div>
           <div class="pcb-caption">solid trace = global · dashed = project · flow = reachable</div>
         </div>
-        <div id="topo-wrap" class="topo-wrap">
-          <div id="topo-nodes" class="pcb">
-            <svg id="spokes" class="edges" viewBox="0 0 1200 640" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+        <div id="topo-wrap" class="canvas-viewport" tabindex="0" role="application" aria-label="MCP topology canvas — drag to pan, arrow keys to pan, plus and minus to zoom, 0 to fit">
+          <div id="topo-nodes" class="pcb canvas-layer">
+            <svg id="spokes" class="edges" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+          </div>
+          <div class="canvas-controls">
+            <button class="canvas-btn zoom-out" type="button" title="Zoom out (−)">−</button>
+            <button class="canvas-btn zoom-fit" type="button" title="Fit topology to view (0)">⤢</button>
+            <button class="canvas-btn zoom-in" type="button" title="Zoom in (+)">+</button>
+          </div>
+          <div id="topo-minimap" class="minimap hidden">
+            <svg id="topo-minimap-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
           </div>
         </div>
       </section>

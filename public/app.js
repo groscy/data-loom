@@ -16,7 +16,10 @@ const reviewEl = document.getElementById("review");
 const projectSelect = document.getElementById("project-select");
 const themeToggle = document.getElementById("theme-toggle");
 const topoNodes = document.getElementById("topo-nodes");
+const topoWrap = document.getElementById("topo-wrap");
 const spokesSvg = document.getElementById("spokes");
+const topoMinimap = document.getElementById("topo-minimap");
+const topoMinimapSvg = document.getElementById("topo-minimap-svg");
 const atlasBody = document.getElementById("atlas-body");
 
 // ── client state ──
@@ -40,22 +43,19 @@ const G_MX = 150,
   N_TOP = 58,
   V_SPACE = 170;
 
-// ── roadmap canvas viewport ──
-// The board is one composited layer: `#board` carries translate+scale, so phase
-// frames, cards and the edges SVG all pan and zoom together and edges stay
-// anchored to their cards for free. This state lives here, outside any DOM that
-// renderBoard() tears down, which is what lets the viewport survive a re-render.
-const MIN_K = 0.25, // below this cards are structure, not text — that's the minimap's job
+// ── canvas navigation (shared by the roadmap and MCP topology boards) ──
+// Each board is one composited layer carrying translate+scale, so its nodes and
+// its SVG overlay pan and zoom together and connectors stay anchored for free.
+// The state lives in the controller closure, outside any DOM the view tears down,
+// which is what lets a viewport survive a re-render.
+const MIN_K = 0.25, // below this nodes are structure, not text — that's the minimap's job
   MAX_K = 2,
   ZOOM_STEP = 1.2, // per button press / key press
   PAN_KEEP = 80, // px of canvas that must stay inside the viewport on every edge
   MM_MAX_W = 190, // minimap box caps
   MM_MAX_H = 130;
-let view = { x: 0, y: 0, k: 1 };
-let viewFitted = false; // false → the next renderBoard() fits (first render / project switch)
-let canvasW = 0,
-  canvasH = 0, // last rendered canvas size, in canvas units
-  phaseCount = 0; // phase columns in the last render — drives minimap visibility
+let phaseCount = 0; // roadmap: phase columns last rendered — drives its minimap rule
+let boardMinimapData = { open: [], pos: {}, frames: [] }; // what the roadmap minimap draws
 
 // ── theme ──
 function applyTheme(t) {
@@ -92,6 +92,11 @@ for (const btn of document.querySelectorAll(".tab[data-tab]")) {
       enterAtlas();
       renderAtlas();
     }
+    // A canvas board that first rendered while its tab was hidden measured a 0×0
+    // viewport, so it is neither fitted nor able to judge its minimap. syncTabs()
+    // has already made it visible, so it can settle both now.
+    if (activeTab === "roadmap" && prev !== "roadmap") roadmapCanvas.revalidate();
+    if (activeTab === "topology" && prev !== "topology") topologyCanvas.revalidate();
   });
 }
 
@@ -117,15 +122,20 @@ projectSelect.addEventListener("change", async () => {
 });
 
 function setProjects(p) {
-  // A different project opens fitted; a live model push for the same project
-  // keeps the reader's pan and zoom. This is the only thing that tells them apart.
-  if (!projects || projects.current !== p.current) viewFitted = false;
+  // A different project opens both boards fitted; a live push for the same
+  // project keeps the reader's pan and zoom. This is the only thing that tells
+  // them apart.
+  if (!projects || projects.current !== p.current) {
+    roadmapCanvas.markUnfitted();
+    topologyCanvas.markUnfitted();
+  }
   projects = p;
   renderProjects(p);
   if (!p.current) {
     clearBoard();
     board.appendChild(el("div", "empty-state", "Select a project above to begin."));
-    resetCanvasToViewport();
+    phaseCount = 0;
+    roadmapCanvas.reset();
     conflictsEl.classList.add("hidden");
     reviewEl.classList.add("hidden");
     atlas = null;
@@ -241,7 +251,8 @@ function renderBoard() {
     board.appendChild(el("div", "empty-state", "No active changes yet. Propose one to populate the roadmap."));
     // Nothing to navigate: match the canvas to the viewport and drop any
     // transform, so the absolutely-centered empty state lands where it belongs.
-    resetCanvasToViewport();
+    phaseCount = 0;
+    roadmapCanvas.reset();
     return;
   }
 
@@ -249,7 +260,7 @@ function renderBoard() {
   // Fixed per-phase pitch → the canvas grows wider as phases are added instead of
   // squeezing columns into a constant width. Wide plans are then reached by
   // panning the canvas (see the viewport section) rather than overlapping.
-  canvasW = 2 * G_MX + Math.max(phaseNums.length - 1, 0) * PHASE_SPAN;
+  const canvasW = 2 * G_MX + Math.max(phaseNums.length - 1, 0) * PHASE_SPAN;
   const gx = (p) => G_MX + phaseNums.indexOf(p) * PHASE_SPAN;
 
   // Grow the canvas vertically so the tallest phase always fits (real projects
@@ -257,12 +268,13 @@ function renderBoard() {
   // tallest card plus the frame header and top/bottom margins.
   const CARD_BAND = 340;
   const maxN = Math.max(1, ...phaseNums.map((p) => open.filter((c) => c.phase === p).length));
-  canvasH = Math.max(600, (maxN - 1) * V_SPACE + CARD_BAND);
+  const canvasH = Math.max(600, (maxN - 1) * V_SPACE + CARD_BAND);
   phaseCount = phaseNums.length;
   const cy = canvasH / 2;
   board.style.width = canvasW + "px";
   board.style.height = canvasH + "px";
   edgesSvg.setAttribute("viewBox", `0 0 ${canvasW} ${canvasH}`);
+  roadmapCanvas.setCanvasSize(canvasW, canvasH);
 
   // Phase-band frames (behind everything), sized to the canvas.
   const frames = [];
@@ -307,11 +319,11 @@ function renderBoard() {
   }
 
   drawEdges(open, pos);
-  renderMinimap(open, pos, frames);
+  boardMinimapData = { open, pos, frames };
+  roadmapCanvas.renderMinimap();
   // First render of a project fits the whole plan; every later render (a model
   // push, a selection, closing the detail panel) keeps the reader's place.
-  if (viewFitted) applyView();
-  else viewFitted = fitView();
+  roadmapCanvas.settle();
 }
 
 function renderCard(c) {
@@ -383,274 +395,407 @@ function drawEdges(open, pos) {
   edgesSvg.innerHTML = s;
 }
 
-// ═══════════════ ROADMAP CANVAS: pan, zoom, minimap ═══════════════
-// The viewport clips; the canvas moves. `#board` carries one translate+scale, so
-// frames, cards and the edges SVG transform as a single layer and connectors stay
-// anchored to their cards without any recomputation.
+// ═══════════════ CANVAS CONTROLLER: pan, zoom, minimap ═══════════════
+// Shared by the roadmap and the MCP topology. The viewport clips; the canvas
+// moves. The layer carries one translate+scale, so every child — cards, frames,
+// the SVG overlay — transforms together and connectors stay anchored to their
+// nodes without any recomputation.
+//
+// Two things are irreducibly per-view and arrive as callbacks: what the minimap
+// draws, and when it is worth showing. Everything else is identical, so the two
+// views cannot drift apart.
+//
+//   viewport            the clipping element (also the focus + gesture target)
+//   canvas              the transformed layer inside it
+//   minimap/minimapSvg  the overview box and its SVG
+//   drawMinimapContent  () => SVG string, in canvas coordinates
+//   shouldShowMinimap   (cw, ch, vw, vh) => boolean
+//   dragIgnoreSelector  descendants that own their own pointer gestures
+//   onReveal            optional: called instead of a plain fit when the viewport
+//                       gains a real size while still unfitted (a view that
+//                       measures its DOM needs a full re-render, not just a fit)
+function createCanvasController(opts) {
+  const { viewport, canvas, minimap, minimapSvg, drawMinimapContent, shouldShowMinimap, dragIgnoreSelector, onReveal } = opts;
 
-function viewportBox() {
-  return { w: boardWrap.clientWidth, h: boardWrap.clientHeight };
-}
+  let view = { x: 0, y: 0, k: 1 };
+  let fitted = false; // false → the next settle() fits (first render / project switch)
+  let cw = 0,
+    ch = 0; // canvas size in canvas units
 
-// The scale at which the whole canvas fits the viewport. Capped at 1: a plan
-// smaller than the viewport opens at 1:1 and centered, never magnified.
-function fitScale() {
-  const { w: vw, h: vh } = viewportBox();
-  if (!canvasW || !canvasH || !vw || !vh) return 1;
-  return Math.min(vw / canvasW, vh / canvasH, 1);
-}
-
-// Interactive zoom-out stops at MIN_K — or at fit, when a plan is so wide that
-// seeing it whole needs more zoom-out than that. Either way "all of it" is always
-// reachable, and zoom-out never becomes zoom-in at the bound.
-function minScale() {
-  return Math.min(MIN_K, fitScale());
-}
-
-// Keep PAN_KEEP px of canvas inside the viewport on every edge, so a hard drag
-// can never leave a blank screen with no obvious way back.
-function clampView() {
-  const { w: vw, h: vh } = viewportBox();
-  const sw = canvasW * view.k,
-    sh = canvasH * view.k;
-  const keepX = Math.min(PAN_KEEP, sw),
-    keepY = Math.min(PAN_KEEP, sh);
-  view.x = Math.min(vw - keepX, Math.max(keepX - sw, view.x));
-  view.y = Math.min(vh - keepY, Math.max(keepY - sh, view.y));
-}
-
-function applyView() {
-  clampView();
-  // Whole-pixel translation at 1:1 keeps text crisp; a fractional offset makes
-  // the browser resample the entire layer.
-  const x = view.k === 1 ? Math.round(view.x) : view.x;
-  const y = view.k === 1 ? Math.round(view.y) : view.y;
-  board.style.transform = `translate(${x}px, ${y}px) scale(${view.k})`;
-  updateMinimapViewport();
-}
-
-// Returns whether it actually fitted: the roadmap tab can be display:none (0×0)
-// when a model arrives, and a fit against a zero viewport is meaningless.
-function fitView() {
-  const { w: vw, h: vh } = viewportBox();
-  if (!canvasW || !canvasH || !vw || !vh) return false;
-  const k = fitScale();
-  view = { k, x: (vw - canvasW * k) / 2, y: (vh - canvasH * k) / 2 };
-  applyView();
-  return true;
-}
-
-// Zoom about a viewport point: convert it to canvas coordinates, rescale, then
-// translate so that same canvas point lands back under the pointer.
-function zoomAt(clientX, clientY, factor) {
-  const r = boardWrap.getBoundingClientRect();
-  const px = clientX - r.left,
-    py = clientY - r.top;
-  const k = Math.max(minScale(), Math.min(MAX_K, view.k * factor));
-  if (k === view.k) return;
-  view.x = px - ((px - view.x) / view.k) * k;
-  view.y = py - ((py - view.y) / view.k) * k;
-  view.k = k;
-  applyView();
-}
-
-function zoomAtCenter(factor) {
-  const r = boardWrap.getBoundingClientRect();
-  zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor);
-}
-
-function panBy(dx, dy) {
-  view.x += dx;
-  view.y += dy;
-  applyView();
-}
-
-// The empty-state path: no canvas to navigate, so match the board to the viewport
-// and drop the transform rather than leaving a stale one behind.
-function resetCanvasToViewport() {
-  const { w: vw, h: vh } = viewportBox();
-  canvasW = vw;
-  canvasH = vh;
-  phaseCount = 0;
-  board.style.width = vw + "px";
-  board.style.height = vh + "px";
-  view = { x: 0, y: 0, k: 1 };
-  board.style.transform = "";
-  minimap.classList.add("hidden");
-}
-
-// ── minimap ──
-// One SVG whose viewBox *is* the canvas, so the browser does the scaling and the
-// coordinates renderBoard() already computed are reused verbatim.
-function renderMinimap(open, pos, frames) {
-  // Built unconditionally, even while hidden: a later resize can reveal it, and
-  // it must not surface holding a previous model's picture.
-  syncMinimapVisibility();
-  const scale = Math.min(MM_MAX_W / canvasW, MM_MAX_H / canvasH);
-  minimap.style.width = Math.round(canvasW * scale) + "px";
-  minimap.style.height = Math.round(canvasH * scale) + "px";
-  minimapSvg.setAttribute("viewBox", `0 0 ${canvasW} ${canvasH}`);
-
-  let s = "";
-  for (const f of frames) s += `<rect class="mm-frame" x="${f.x}" y="${f.y}" width="${f.w}" height="${f.h}" rx="16"/>`;
-  for (const c of open) {
-    const p = pos[c.name];
-    if (!p) continue;
-    const sel = selectedChange === c.name ? " sel" : "";
-    s += `<rect class="mm-card${sel}" x="${p.x - N_HALF}" y="${p.top}" width="${2 * N_HALF}" height="${p.h}" rx="10"/>`;
+  function viewportBox() {
+    return { w: viewport.clientWidth, h: viewport.clientHeight };
   }
-  s += '<rect class="mm-view" x="0" y="0" width="0" height="0" rx="6"/>';
-  minimapSvg.innerHTML = s;
-  updateMinimapViewport();
-}
 
-// Shown once the roadmap has structure worth surveying — more than one phase — or
-// whenever the canvas outruns the viewport, which also covers a single phase with a
-// tall stack. Hidden only for a single-phase plan that already fits, where it would
-// just restate the screen. Depends on viewport size, so it is re-evaluated on resize
-// too, not only on render.
-function syncMinimapVisibility() {
-  const { w: vw, h: vh } = viewportBox();
-  const show = phaseCount > 1 || canvasW > vw || canvasH > vh;
-  minimap.classList.toggle("hidden", !show);
-  return show;
-}
+  // The scale at which the whole canvas fits the viewport. Capped at 1: content
+  // smaller than the viewport opens at 1:1 and centered, never magnified.
+  function fitScale() {
+    const { w: vw, h: vh } = viewportBox();
+    if (!cw || !ch || !vw || !vh) return 1;
+    return Math.min(vw / cw, vh / ch, 1);
+  }
 
-function updateMinimapViewport() {
-  const r = minimapSvg.querySelector(".mm-view");
-  if (!r) return;
-  const { w: vw, h: vh } = viewportBox();
-  r.setAttribute("x", -view.x / view.k);
-  r.setAttribute("y", -view.y / view.k);
-  r.setAttribute("width", vw / view.k);
-  r.setAttribute("height", vh / view.k);
-}
+  // Interactive zoom-out stops at MIN_K — or at fit, when the content is so large
+  // that seeing it whole needs more zoom-out than that. Either way "all of it" is
+  // always reachable, and zoom-out never becomes zoom-in at the bound.
+  function minScale() {
+    return Math.min(MIN_K, fitScale());
+  }
 
-// Map a pointer position inside the minimap back through the viewBox scale and
-// center the viewport on it. The box is sized to the canvas aspect ratio, so the
-// SVG never letterboxes and this mapping is exact.
-function minimapJump(clientX, clientY) {
-  const r = minimapSvg.getBoundingClientRect();
-  if (!r.width || !r.height) return;
-  const cx = ((clientX - r.left) / r.width) * canvasW;
-  const cy = ((clientY - r.top) / r.height) * canvasH;
-  const { w: vw, h: vh } = viewportBox();
-  view.x = vw / 2 - cx * view.k;
-  view.y = vh / 2 - cy * view.k;
-  applyView();
-}
+  // Keep PAN_KEEP px of canvas inside the viewport on every edge, so a hard drag
+  // can never leave a blank screen with no obvious way back.
+  function clampView() {
+    const { w: vw, h: vh } = viewportBox();
+    const sw = cw * view.k,
+      sh = ch * view.k;
+    const keepX = Math.min(PAN_KEEP, sw),
+      keepY = Math.min(PAN_KEEP, sh);
+    view.x = Math.min(vw - keepX, Math.max(keepX - sw, view.x));
+    view.y = Math.min(vh - keepY, Math.max(keepY - sh, view.y));
+  }
 
-// ── canvas input ──
+  function applyView() {
+    clampView();
+    // Whole-pixel translation at 1:1 keeps text crisp; a fractional offset makes
+    // the browser resample the entire layer.
+    const x = view.k === 1 ? Math.round(view.x) : view.x;
+    const y = view.k === 1 ? Math.round(view.y) : view.y;
+    canvas.style.transform = `translate(${x}px, ${y}px) scale(${view.k})`;
+    updateMinimapViewport();
+  }
 
-let dragging = null;
-boardWrap.addEventListener("pointerdown", (e) => {
-  // Cards are not draggable (their positions are derived), and the overlays own
-  // their own gestures.
-  if (e.button !== 0 || e.target.closest(".gcard, .canvas-controls, .minimap")) return;
-  dragging = { id: e.pointerId, x: e.clientX, y: e.clientY };
-  boardWrap.setPointerCapture(e.pointerId);
-  boardWrap.classList.add("dragging");
-  board.style.willChange = "transform"; // only while dragging — a permanent hint costs a texture
-});
-boardWrap.addEventListener("pointermove", (e) => {
-  if (!dragging || e.pointerId !== dragging.id) return;
-  panBy(e.clientX - dragging.x, e.clientY - dragging.y);
-  dragging.x = e.clientX;
-  dragging.y = e.clientY;
-});
-function endBoardDrag(e) {
-  if (!dragging || e.pointerId !== dragging.id) return;
-  dragging = null;
-  boardWrap.classList.remove("dragging");
-  board.style.willChange = "";
-}
-boardWrap.addEventListener("pointerup", endBoardDrag);
-boardWrap.addEventListener("pointercancel", endBoardDrag);
+  // Returns whether it actually fitted: a view's tab can be display:none (0×0)
+  // when its model arrives, and a fit against a zero viewport is meaningless.
+  function fitView() {
+    const { w: vw, h: vh } = viewportBox();
+    if (!cw || !ch || !vw || !vh) return false;
+    const k = fitScale();
+    view = { k, x: (vw - cw * k) / 2, y: (vh - ch * k) / 2 };
+    applyView();
+    return true;
+  }
 
-// Bare wheel / two-finger trackpad pans; ctrl/cmd + wheel zooms — which is also
-// how a trackpad pinch is reported. Needs passive:false to preventDefault, or the
-// page scrolls instead.
-boardWrap.addEventListener(
-  "wheel",
-  (e) => {
+  // Zoom about a viewport point: convert it to canvas coordinates, rescale, then
+  // translate so that same canvas point lands back under the pointer.
+  function zoomAt(clientX, clientY, factor) {
+    const r = viewport.getBoundingClientRect();
+    const px = clientX - r.left,
+      py = clientY - r.top;
+    const k = Math.max(minScale(), Math.min(MAX_K, view.k * factor));
+    if (k === view.k) return;
+    view.x = px - ((px - view.x) / view.k) * k;
+    view.y = py - ((py - view.y) / view.k) * k;
+    view.k = k;
+    applyView();
+  }
+
+  function zoomAtCenter(factor) {
+    const r = viewport.getBoundingClientRect();
+    zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor);
+  }
+
+  function panBy(dx, dy) {
+    view.x += dx;
+    view.y += dy;
+    applyView();
+  }
+
+  function setCanvasSize(w, h) {
+    cw = w;
+    ch = h;
+  }
+
+  // The empty-state path: nothing to navigate, so match the canvas to the viewport
+  // and drop the transform rather than leaving a stale one behind. Views whose
+  // empty state is absolutely centered inside the canvas depend on this.
+  function reset() {
+    const { w: vw, h: vh } = viewportBox();
+    cw = vw;
+    ch = vh;
+    canvas.style.width = vw + "px";
+    canvas.style.height = vh + "px";
+    view = { x: 0, y: 0, k: 1 };
+    canvas.style.transform = "";
+    minimap.classList.add("hidden");
+  }
+
+  // First render of a project fits; every later render keeps the reader's place.
+  function settle() {
+    if (fitted) applyView();
+    else fitted = fitView();
+  }
+
+  // ── minimap ──
+  // One SVG whose viewBox *is* the canvas, so the browser does the scaling and the
+  // coordinates the view already computed are reused verbatim.
+  function renderMinimap() {
+    // Built unconditionally, even while hidden: a later resize can reveal it, and
+    // it must not surface holding a previous model's picture.
+    syncVisibility();
+    if (!cw || !ch) return;
+    const scale = Math.min(MM_MAX_W / cw, MM_MAX_H / ch);
+    minimap.style.width = Math.round(cw * scale) + "px";
+    minimap.style.height = Math.round(ch * scale) + "px";
+    minimapSvg.setAttribute("viewBox", `0 0 ${cw} ${ch}`);
+    minimapSvg.innerHTML = drawMinimapContent() + '<rect class="mm-view" x="0" y="0" width="0" height="0" rx="6"/>';
+    updateMinimapViewport();
+  }
+
+  // Depends on viewport size, so it is re-evaluated on reveal and resize too, not
+  // only on render. A 0×0 viewport (hidden tab) cannot answer the question — and
+  // would answer it wrongly, since "canvas wider than viewport" is trivially true
+  // against zero — so the decision is deferred to the reveal.
+  function syncVisibility() {
+    const { w: vw, h: vh } = viewportBox();
+    if (!vw || !vh) return false;
+    const show = shouldShowMinimap(cw, ch, vw, vh);
+    minimap.classList.toggle("hidden", !show);
+    return show;
+  }
+
+  function updateMinimapViewport() {
+    const r = minimapSvg.querySelector(".mm-view");
+    if (!r) return;
+    const { w: vw, h: vh } = viewportBox();
+    r.setAttribute("x", -view.x / view.k);
+    r.setAttribute("y", -view.y / view.k);
+    r.setAttribute("width", vw / view.k);
+    r.setAttribute("height", vh / view.k);
+  }
+
+  // Map a pointer position inside the minimap back through the viewBox scale and
+  // center the viewport on it. The box is sized to the canvas aspect ratio, so the
+  // SVG never letterboxes and this mapping is exact.
+  function minimapJump(clientX, clientY) {
+    const r = minimapSvg.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const px = ((clientX - r.left) / r.width) * cw;
+    const py = ((clientY - r.top) / r.height) * ch;
+    const { w: vw, h: vh } = viewportBox();
+    view.x = vw / 2 - px * view.k;
+    view.y = vh / 2 - py * view.k;
+    applyView();
+  }
+
+  // ── input ──
+
+  let dragging = null;
+  viewport.addEventListener("pointerdown", (e) => {
+    // Nodes are not draggable (their positions are derived) and must not be
+    // selected by a drag that happens to end on them; overlays own their gestures.
+    if (e.button !== 0 || e.target.closest(dragIgnoreSelector)) return;
+    dragging = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    viewport.setPointerCapture(e.pointerId);
+    viewport.classList.add("dragging");
+    canvas.style.willChange = "transform"; // only while dragging — a permanent hint costs a texture
+  });
+  viewport.addEventListener("pointermove", (e) => {
+    if (!dragging || e.pointerId !== dragging.id) return;
+    panBy(e.clientX - dragging.x, e.clientY - dragging.y);
+    dragging.x = e.clientX;
+    dragging.y = e.clientY;
+  });
+  function endDrag(e) {
+    if (!dragging || e.pointerId !== dragging.id) return;
+    dragging = null;
+    viewport.classList.remove("dragging");
+    canvas.style.willChange = "";
+  }
+  viewport.addEventListener("pointerup", endDrag);
+  viewport.addEventListener("pointercancel", endDrag);
+
+  // Bare wheel / two-finger trackpad pans; ctrl/cmd + wheel zooms — which is also
+  // how a trackpad pinch is reported. Needs passive:false to preventDefault, or the
+  // page scrolls instead.
+  viewport.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const lines = e.deltaMode === 1 ? 16 : 1; // deltaMode 1 = lines, not pixels
+      const dx = e.deltaX * lines,
+        dy = e.deltaY * lines;
+      if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-dy * 0.0015));
+      else panBy(-dx, -dy);
+    },
+    { passive: false }
+  );
+
+  viewport.addEventListener("keydown", (e) => {
+    const { w: vw, h: vh } = viewportBox();
+    switch (e.key) {
+      case "ArrowLeft":
+        panBy(vw * 0.2, 0);
+        break;
+      case "ArrowRight":
+        panBy(-vw * 0.2, 0);
+        break;
+      case "ArrowUp":
+        panBy(0, vh * 0.2);
+        break;
+      case "ArrowDown":
+        panBy(0, -vh * 0.2);
+        break;
+      case "+":
+      case "=":
+        zoomAtCenter(ZOOM_STEP);
+        break;
+      case "-":
+      case "_":
+        zoomAtCenter(1 / ZOOM_STEP);
+        break;
+      case "0":
+        fitView();
+        break;
+      default:
+        return;
+    }
+    e.preventDefault(); // arrows would otherwise scroll an ancestor
+  });
+
+  let mmDragging = false;
+  minimap.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    mmDragging = true;
+    minimap.setPointerCapture(e.pointerId);
+    minimapJump(e.clientX, e.clientY);
     e.preventDefault();
-    const lines = e.deltaMode === 1 ? 16 : 1; // deltaMode 1 = lines, not pixels
-    const dx = e.deltaX * lines,
-      dy = e.deltaY * lines;
-    if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-dy * 0.0015));
-    else panBy(-dx, -dy);
-  },
-  { passive: false }
-);
+  });
+  minimap.addEventListener("pointermove", (e) => {
+    if (mmDragging) minimapJump(e.clientX, e.clientY);
+  });
+  minimap.addEventListener("pointerup", () => (mmDragging = false));
+  minimap.addEventListener("pointercancel", () => (mmDragging = false));
 
-boardWrap.addEventListener("keydown", (e) => {
-  const { w: vw, h: vh } = viewportBox();
-  switch (e.key) {
-    case "ArrowLeft":
-      panBy(vw * 0.2, 0);
-      break;
-    case "ArrowRight":
-      panBy(-vw * 0.2, 0);
-      break;
-    case "ArrowUp":
-      panBy(0, vh * 0.2);
-      break;
-    case "ArrowDown":
-      panBy(0, -vh * 0.2);
-      break;
-    case "+":
-    case "=":
-      zoomAtCenter(ZOOM_STEP);
-      break;
-    case "-":
-    case "_":
-      zoomAtCenter(1 / ZOOM_STEP);
-      break;
-    case "0":
-      fitView();
-      break;
-    default:
+  // Scoped to this viewport, so two controllers never fight over one control.
+  viewport.querySelector(".canvas-btn.zoom-in").addEventListener("click", () => zoomAtCenter(ZOOM_STEP));
+  viewport.querySelector(".canvas-btn.zoom-out").addEventListener("click", () => zoomAtCenter(1 / ZOOM_STEP));
+  viewport.querySelector(".canvas-btn.zoom-fit").addEventListener("click", fitView);
+
+  // Fit, clamp and minimap visibility all depend on viewport size, so a resize has
+  // to re-run them. This also catches a tab going from display:none to visible: the
+  // first real size we see is where a pending initial fit belongs.
+  // Held in a binding rather than left anonymous: an unreferenced observer is not
+  // reliably kept alive by every engine, and a collected one fails silently.
+  // Re-decide everything that depends on viewport size. Driven from two places:
+  // a resize, and an explicit reveal when the view's tab is switched to. The tab
+  // click is the deterministic one — a hidden tab reports 0×0, and a board first
+  // rendered in that state is neither fitted nor able to judge its minimap.
+  function revalidate() {
+    syncVisibility();
+    if (fitted) {
+      if (cw && ch) applyView();
       return;
+    }
+    // Still unfitted means the last render met a 0×0 viewport. The first real
+    // size we see is where the initial fit belongs, and a view that measures its
+    // DOM (or that reset itself against a zero viewport) needs a full re-render
+    // to get there, not just a fit.
+    if (onReveal) onReveal();
+    else if (cw && ch) fitted = fitView();
   }
-  e.preventDefault(); // arrows would otherwise scroll an ancestor
-});
 
-let mmDragging = false;
-minimap.addEventListener("pointerdown", (e) => {
-  if (e.button !== 0) return;
-  mmDragging = true;
-  minimap.setPointerCapture(e.pointerId);
-  minimapJump(e.clientX, e.clientY);
-  e.preventDefault();
-});
-minimap.addEventListener("pointermove", (e) => {
-  if (mmDragging) minimapJump(e.clientX, e.clientY);
-});
-minimap.addEventListener("pointerup", () => (mmDragging = false));
-minimap.addEventListener("pointercancel", () => (mmDragging = false));
+  // Held in a binding rather than left anonymous: an unreferenced observer is not
+  // reliably kept alive by every engine, and a collected one fails silently.
+  const resizeObserver = new ResizeObserver(revalidate);
+  resizeObserver.observe(viewport);
 
-document.getElementById("zoom-in").addEventListener("click", () => zoomAtCenter(ZOOM_STEP));
-document.getElementById("zoom-out").addEventListener("click", () => zoomAtCenter(1 / ZOOM_STEP));
-document.getElementById("zoom-fit").addEventListener("click", fitView);
+  return {
+    applyView,
+    fitView,
+    panBy,
+    zoomAtCenter,
+    setCanvasSize,
+    renderMinimap,
+    syncVisibility,
+    revalidate,
+    reset,
+    settle,
+    isFitted: () => fitted,
+    markUnfitted: () => {
+      fitted = false;
+    },
+  };
+}
 
-// Fit, clamp and minimap visibility all depend on viewport size, so a resize has
-// to re-run them. This also catches the roadmap tab going from display:none to
-// visible: the first real size we see is where a pending initial fit belongs.
-// Held in a binding rather than left anonymous: an unreferenced observer is not
-// reliably kept alive by every engine, and a collected one fails silently.
-const boardResizeObserver = new ResizeObserver(() => {
-  if (!canvasW || !canvasH) return;
-  syncMinimapVisibility();
-  if (viewFitted) applyView();
-  // Not yet fitted means the board was last built against a 0×0 viewport (the
-  // roadmap tab was hidden), so the card heights behind the connectors are
-  // fallbacks. A full re-render re-measures them and fits in one go.
-  else if (model) renderBoard();
-  else viewFitted = fitView();
+// The roadmap's instance. Its minimap shows phase frames plus measured card
+// rects, and appears once the plan has more than one phase — structure worth
+// surveying — or whenever the canvas outruns the viewport, which also covers a
+// single phase with a tall stack.
+const roadmapCanvas = createCanvasController({
+  viewport: boardWrap,
+  canvas: board,
+  minimap,
+  minimapSvg,
+  dragIgnoreSelector: ".gcard, .canvas-controls, .minimap",
+  shouldShowMinimap: (cw, ch, vw, vh) => phaseCount > 1 || cw > vw || ch > vh,
+  drawMinimapContent: () => {
+    const { open, pos, frames } = boardMinimapData;
+    let s = "";
+    for (const f of frames) s += `<rect class="mm-frame" x="${f.x}" y="${f.y}" width="${f.w}" height="${f.h}" rx="16"/>`;
+    for (const c of open) {
+      const p = pos[c.name];
+      if (!p) continue;
+      const sel = selectedChange === c.name ? " sel" : "";
+      s += `<rect class="mm-card${sel}" x="${p.x - N_HALF}" y="${p.top}" width="${2 * N_HALF}" height="${p.h}" rx="10"/>`;
+    }
+    return s;
+  },
+  // The roadmap measures card heights, which read 0 while its tab is hidden — so
+  // a reveal needs a full re-render to re-measure, not just a fit.
+  onReveal: () => {
+    if (model) renderBoard();
+  },
 });
-boardResizeObserver.observe(boardWrap);
 
 // ═══════════════ MCP TOPOLOGY (circuit board) ═══════════════
+// Two bank columns flanking the hub chip. The single source of truth for the hub
+// and the banks lives here: the canvas height varies with the server count, so
+// neither CSS nor a hardcoded viewBox can hold this geometry any more.
+const PCB_W = 1200, // canvas width — two bank columns plus the hub between them
+  PCB_BASE_H = 640, // base height; the canvas grows past this rather than compressing
+  PCB_BASE_TOP = 72, // top/bottom margin of the base band
+  PCB_BASE_BOT = 568,
+  PCB_CX = 600, // hub center x
+  CHW = 152, // hub chip size (matches .mcu in CSS)
+  CHH = 150,
+  LEFT_X = 150, // bank card columns
+  RIGHT_X = 854,
+  LEFT_PAD = 346, // where a trace meets its card
+  RIGHT_PAD = 854,
+  COMP_W = 196, // card size (matches .pcb-comp in CSS)
+  COMP_HALF = 28, // half card height: the solder pad sits on the card's center
+  COMP_PITCH = 78; // minimum vertical pitch — a ~56px card plus breathing room
+
+let topoMinimapData = { hub: null, comps: [] };
+
+// The topology's controller. Its minimap shows the hub chip plus one rect per
+// server, and appears once the canvas has grown past its base height — the
+// equivalent of the roadmap's "more than one phase" — or whenever it overruns
+// the viewport. Nothing here is measured from the DOM, so no onReveal is needed:
+// a plain fit on reveal is correct.
+const topologyCanvas = createCanvasController({
+  viewport: topoWrap,
+  canvas: topoNodes,
+  minimap: topoMinimap,
+  minimapSvg: topoMinimapSvg,
+  dragIgnoreSelector: ".pcb-comp, .mcu, .canvas-controls, .minimap",
+  shouldShowMinimap: (cw, ch, vw, vh) => ch > PCB_BASE_H || cw > vw || ch > vh,
+  // Nothing here is measured from the DOM, but the empty-server path resets the
+  // canvas against the live viewport — which is 0×0 while the tab is hidden — so
+  // a reveal still needs the render, not just a fit.
+  onReveal: () => {
+    if (mcpModel) renderTopology();
+  },
+  drawMinimapContent: () => {
+    const { hub, comps } = topoMinimapData;
+    let s = "";
+    if (hub) s += `<rect class="mm-frame" x="${hub.x}" y="${hub.y}" width="${CHW}" height="${CHH}" rx="10"/>`;
+    for (const c of comps) {
+      const sel = selectedServer === c.name ? " sel" : "";
+      s += `<rect class="mm-card${sel}" x="${c.x}" y="${c.y}" width="${COMP_W}" height="${2 * COMP_HALF}" rx="8"/>`;
+    }
+    return s;
+  },
+});
 
 function setMcp(m) {
   mcpModel = m;
@@ -686,53 +831,83 @@ function renderTopology() {
   if (!mcpModel) return;
   clearTopo();
 
-  // MCU chip (hub).
-  const mcu = el("div", "mcu");
-  mcu.appendChild(el("div", "mcu-name", mcpModel.hub || "Claude Code"));
-  mcu.appendChild(el("div", "mcu-sub", "MCU · hub"));
-  topoNodes.appendChild(mcu);
-
   const vis = visibleServers();
   if (!vis.length) {
     topoNodes.appendChild(
       el("div", "topo-empty", mcpModel.servers.length ? "No servers match this scope." : "No MCP servers found in your Claude Code config.")
     );
+    // `.topo-empty` centers itself inside the canvas and carries its own
+    // transform, so the canvas has to match the viewport and drop the pan/zoom.
+    topologyCanvas.reset();
+    topoMinimapData = { hub: null, comps: [] };
     return;
   }
 
-  const PCB_CX = 600,
-    PCB_CY = 320,
-    CHW = 152;
   const half = Math.ceil(vis.length / 2);
   const leftBank = vis.slice(0, half);
   const rightBank = vis.slice(half);
+
+  // Spread across the base band while that still leaves cards comfortably apart;
+  // once the spread would squeeze them tighter than COMP_PITCH, hold the pitch and
+  // let the canvas grow instead. Below the crossover the geometry is identical to
+  // the fixed-band layout this replaced, so small boards look untouched.
+  const pitchOf = (n) => (n <= 1 ? 0 : Math.max(COMP_PITCH, (PCB_BASE_BOT - PCB_BASE_TOP) / (n - 1)));
+  const leftPitch = pitchOf(leftBank.length),
+    rightPitch = pitchOf(rightBank.length);
+  const spanOf = (n, pitch) => Math.max(n - 1, 0) * pitch;
+  const maxSpan = Math.max(spanOf(leftBank.length, leftPitch), spanOf(rightBank.length, rightPitch));
+
+  const canvasW = PCB_W;
+  const canvasH = Math.max(PCB_BASE_H, maxSpan + 2 * PCB_BASE_TOP);
+  const cy = canvasH / 2;
+  topoNodes.style.width = canvasW + "px";
+  topoNodes.style.height = canvasH + "px";
+  spokesSvg.setAttribute("viewBox", `0 0 ${canvasW} ${canvasH}`);
+  topologyCanvas.setCanvasSize(canvasW, canvasH);
+
+  // MCU chip (hub), positioned from the same constants the traces use — the
+  // canvas height varies now, so CSS cannot hold this.
+  const mcu = el("div", "mcu");
+  mcu.style.left = PCB_CX - CHW / 2 + "px";
+  mcu.style.top = cy - CHH / 2 + "px";
+  mcu.appendChild(el("div", "mcu-name", mcpModel.hub || "Claude Code"));
+  mcu.appendChild(el("div", "mcu-sub", "MCU · hub"));
+  topoNodes.appendChild(mcu);
+
   const pinSp = (n) => Math.min(26, 120 / Math.max(n, 1));
-  const yOf = (n, i, top, bot) => (n <= 1 ? (top + bot) / 2 : top + i * ((bot - top) / (n - 1)));
+  // Each bank is centered on the canvas, so an odd split does not sit top-heavy.
+  const yOf = (n, i, pitch) => cy - spanOf(n, pitch) / 2 + i * pitch;
   const lineFor = (sc) => (sc === "global" ? "var(--line-a)" : "var(--line-b)");
   const liveUp = (s) => ["available", "already-running"].includes(liveOf(s));
 
   const traces = [];
+  const comps = [];
 
   leftBank.forEach((s, i) => {
-    const yc = yOf(leftBank.length, i, 72, 568),
-      padX = 346;
-    const pinY = PCB_CY + (i - (leftBank.length - 1) / 2) * pinSp(leftBank.length),
+    const yc = yOf(leftBank.length, i, leftPitch),
+      padX = LEFT_PAD;
+    const pinY = cy + (i - (leftBank.length - 1) / 2) * pinSp(leftBank.length),
       sx = PCB_CX - CHW / 2,
       midX = 452 - i * 22;
-    placeComp(s, 150, yc - 28);
+    placeComp(s, LEFT_X, yc - COMP_HALF);
+    comps.push({ x: LEFT_X, y: yc - COMP_HALF, name: s.name });
     traces.push({ d: `M ${sx} ${pinY} H ${midX} V ${yc} H ${padX}`, color: lineFor(s.scope), dash: s.scope === "project", flow: liveUp(s), px: sx, py: pinY, qx: padX, qy: yc });
   });
   rightBank.forEach((s, i) => {
-    const yc = yOf(rightBank.length, i, 72, 568),
-      padX = 854;
-    const pinY = PCB_CY + (i - (rightBank.length - 1) / 2) * pinSp(rightBank.length),
+    const yc = yOf(rightBank.length, i, rightPitch),
+      padX = RIGHT_PAD;
+    const pinY = cy + (i - (rightBank.length - 1) / 2) * pinSp(rightBank.length),
       ex = PCB_CX + CHW / 2,
       midX = 748 + i * 22;
-    placeComp(s, 854, yc - 28);
+    placeComp(s, RIGHT_X, yc - COMP_HALF);
+    comps.push({ x: RIGHT_X, y: yc - COMP_HALF, name: s.name });
     traces.push({ d: `M ${ex} ${pinY} H ${midX} V ${yc} H ${padX}`, color: lineFor(s.scope), dash: s.scope === "project", flow: liveUp(s), px: ex, py: pinY, qx: padX, qy: yc });
   });
 
   drawTraces(traces);
+  topoMinimapData = { hub: { x: PCB_CX - CHW / 2, y: cy - CHH / 2 }, comps };
+  topologyCanvas.renderMinimap();
+  topologyCanvas.settle();
 }
 
 function placeComp(s, left, top) {

@@ -1,8 +1,5 @@
-# topology-view Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-mcp-topology. Update Purpose after archive.
-## Requirements
 ### Requirement: Hub-and-spoke centered on Claude Code
 The topology view SHALL render a hub-and-spoke layout with Claude Code as the single hub at the center and each discovered MCP server as a spoke. The vertical spacing between adjacent servers SHALL never fall below a minimum legible pitch. While the servers fit the canvas at its base size they SHALL be distributed across it; once distributing them would breach that minimum, the pitch SHALL hold and the canvas SHALL grow instead, so servers never overlap, clip, or become unreadable as the count rises. The layout SHALL stay centered on the canvas at every count.
 
@@ -22,30 +19,7 @@ The topology view SHALL render a hub-and-spoke layout with Claude Code as the si
 - **WHEN** the servers still fit the canvas at its base size
 - **THEN** they are distributed across it exactly as they were before the canvas could grow, and the canvas keeps its base size
 
-### Requirement: Scope shown per spoke
-The topology view SHALL visually distinguish global servers from project-scoped servers (e.g. via edge styling), so the user can see why a given server is or is not attached in the current context.
-
-#### Scenario: Global vs project spokes distinguishable
-- **WHEN** the server list contains both global and project-scoped servers
-- **THEN** the view renders their spokes with a distinguishable treatment for scope
-
-### Requirement: Liveness state per server
-The topology view SHALL display each server's availability state (e.g. available / unreachable / needs-auth / on-demand / already-running / unknown) and its last-checked time when known.
-
-#### Scenario: State shown on each server
-- **WHEN** an availability result exists for a server
-- **THEN** the view shows that server's state and last-checked time
-
-#### Scenario: Unknown before first check
-- **WHEN** a server has not yet been checked
-- **THEN** the view shows it in an unknown state rather than implying it is down
-
-### Requirement: User-triggered availability check
-The topology view SHALL let the user trigger an availability check for a server on demand, and SHALL update that server's displayed state when the result arrives. It SHALL NOT offer to start or launch servers.
-
-#### Scenario: Check on demand updates state
-- **WHEN** the user triggers a check for a server
-- **THEN** the view requests the check and updates that server's state when the daemon returns the result
+## ADDED Requirements
 
 ### Requirement: Pan and zoom the topology canvas
 The topology canvas SHALL be presented inside a fixed viewport that clips it, and SHALL NOT present a scrollbar on either axis. The view SHALL let the user pan the canvas by dragging it and by wheel or trackpad gesture, and zoom it between a minimum and a maximum scale. Zooming SHALL keep the point under the pointer stationary. Panning SHALL be constrained so at least part of the canvas always remains within the viewport. When the whole canvas fits within the viewport it SHALL remain centered. Dragging a server card SHALL neither move that card nor select it — card positions are derived from the discovered servers and are never edited by the view.

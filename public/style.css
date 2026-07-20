@@ -293,33 +293,41 @@ main {
 /* The roadmap fills the viewport as a column: banners keep their natural height,
    the canvas takes the rest. `min-height: 0` lets the canvas actually shrink —
    without it a flex item refuses to go below its content size and overflows. */
-#roadmap.active {
+#roadmap.active,
+#topology.active {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
 }
 
-.board-wrap {
+/* Shared by the roadmap and MCP topology boards: the viewport clips, the layer
+   inside it carries one translate+scale. Both views drive it from the same
+   controller, so their rules live together rather than being duplicated. */
+.canvas-viewport {
   position: relative;
   flex: 1;
   min-height: 0;
-  overflow: hidden; /* a clipping viewport: navigation is pan/zoom/minimap, never a scrollbar */
+  overflow: hidden; /* navigation is pan/zoom/minimap, never a scrollbar */
   touch-action: none; /* we own the gestures; without this the browser scrolls the page */
   cursor: grab;
   outline: none;
 }
-.board-wrap.dragging {
+.canvas-viewport.dragging {
   cursor: grabbing;
 }
-.board-wrap:focus-visible {
+.canvas-viewport:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-.board {
+/* The transformed layer. `transform-origin: 0 0` is required, not cosmetic: the
+   controller's zoom maths assumes the canvas origin is the container origin. */
+.canvas-layer {
   position: relative;
+  transform-origin: 0 0;
+}
+.board {
   height: 600px; /* width + height are set from JS per phase/card count */
-  transform-origin: 0 0; /* pan/zoom transform is applied from the canvas origin */
 }
 .edges {
   position: absolute;
@@ -750,20 +758,18 @@ main {
   color: var(--faint);
 }
 
-.topo-wrap {
-  position: relative;
-}
+/* Size comes from JS (it grows with the server count); centring is done by the
+   fit transform, so no `margin: 0 auto` — an auto margin would insert an offset
+   the controller's zoom maths cannot see. */
 .pcb {
-  position: relative;
   width: 1200px;
   height: 640px;
-  margin: 0 auto;
 }
 
+/* left/top come from JS: PCB_CX/PCB_CY are the single source of truth for the
+   hub's position now that the canvas height varies. */
 .mcu {
   position: absolute;
-  left: 524px;
-  top: 245px;
   width: 152px;
   height: 150px;
   border: 1.5px solid var(--accent);
