@@ -50,3 +50,5 @@ Verify against a local daemon built from this repo, not the globally installed c
 - [x] 4.14 Themes: the controls and minimap use the shared `.canvas-controls` / `.minimap` rules already verified across both themes in v0.11.0, and the topology adds no colours of its own.
 - [x] 4.15 Two controllers do not interfere. — panned the topology, switched back to the roadmap: the roadmap's transform was byte-identical to before, while the topology's had moved. Each holds its own state.
 - [x] 4.16 Run `npm run build` and `node --check public/app.js`.
+
+**Closed after release** — live window resizing could not be exercised here, because this preview pane never delivers `ResizeObserver` callbacks (a freshly-attached probe observer fired 0 times across a real height change). Confirmed by the maintainer in a real browser on 2026-07-20, after v0.12.1: resizing the window drives the minimap crossover correctly on both the roadmap and the MCP topology. The observer path was correct as written.
