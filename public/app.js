@@ -763,7 +763,14 @@ const PCB_W = 1200, // canvas width — two bank columns plus the hub between th
   RIGHT_PAD = 854,
   COMP_W = 196, // card size (matches .pcb-comp in CSS)
   COMP_HALF = 28, // half card height: the solder pad sits on the card's center
-  COMP_PITCH = 78; // minimum vertical pitch — a ~56px card plus breathing room
+  COMP_PITCH = 78, // minimum vertical pitch — a ~56px card plus breathing room
+  // Trace routing: each connection turns at its own vertical channel, and every
+  // channel has to stay inside the corridor between the chip edge and the card
+  // column. A fixed pitch walked straight out of it — past the cards, then off
+  // the canvas — so the pitch is preferred, not guaranteed.
+  CH_BASE = 72, // first channel's offset from the chip edge
+  CH_STEP = 22, // preferred spacing between adjacent channels
+  CH_MARGIN = 16; // clearance between the last channel and the card column
 
 let topoMinimapData = { hub: null, comps: [] };
 
@@ -875,6 +882,13 @@ function renderTopology() {
   topoNodes.appendChild(mcu);
 
   const pinSp = (n) => Math.min(26, 120 / Math.max(n, 1));
+  // Channels are spaced at CH_STEP while they fit the corridor and compress only
+  // once they would not. Derived from the layout constants rather than written as
+  // a literal, so moving a bank column can't silently push channels out again.
+  const corridor = PCB_CX - CHW / 2 - LEFT_PAD;
+  const chanStep = (n) => Math.min(CH_STEP, Math.max(corridor - CH_BASE - CH_MARGIN, 0) / Math.max(n - 1, 1));
+  const leftStep = chanStep(leftBank.length),
+    rightStep = chanStep(rightBank.length);
   // Each bank is centered on the canvas, so an odd split does not sit top-heavy.
   const yOf = (n, i, pitch) => cy - spanOf(n, pitch) / 2 + i * pitch;
   const lineFor = (sc) => (sc === "global" ? "var(--line-a)" : "var(--line-b)");
@@ -888,7 +902,7 @@ function renderTopology() {
       padX = LEFT_PAD;
     const pinY = cy + (i - (leftBank.length - 1) / 2) * pinSp(leftBank.length),
       sx = PCB_CX - CHW / 2,
-      midX = 452 - i * 22;
+      midX = sx - CH_BASE - i * leftStep;
     placeComp(s, LEFT_X, yc - COMP_HALF);
     comps.push({ x: LEFT_X, y: yc - COMP_HALF, name: s.name });
     traces.push({ d: `M ${sx} ${pinY} H ${midX} V ${yc} H ${padX}`, color: lineFor(s.scope), dash: s.scope === "project", flow: liveUp(s), px: sx, py: pinY, qx: padX, qy: yc });
@@ -898,7 +912,7 @@ function renderTopology() {
       padX = RIGHT_PAD;
     const pinY = cy + (i - (rightBank.length - 1) / 2) * pinSp(rightBank.length),
       ex = PCB_CX + CHW / 2,
-      midX = 748 + i * 22;
+      midX = ex + CH_BASE + i * rightStep;
     placeComp(s, RIGHT_X, yc - COMP_HALF);
     comps.push({ x: RIGHT_X, y: yc - COMP_HALF, name: s.name });
     traces.push({ d: `M ${ex} ${pinY} H ${midX} V ${yc} H ${padX}`, color: lineFor(s.scope), dash: s.scope === "project", flow: liveUp(s), px: ex, py: pinY, qx: padX, qy: yc });
